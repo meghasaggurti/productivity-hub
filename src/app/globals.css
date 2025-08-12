@@ -1,26 +1,35 @@
-@import "tailwindcss";
+/* 
+  Global CSS file containing base styles and design tokens.
+  - Defines custom CSS variables for background, foreground, and fonts.
+  - Applies color scheme based on the user's system preference (light/dark mode).
+  - Includes Tailwind CSS for utility-first styling.
+*/
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Tailwind v4: single import */
+@import "tailwindcss"; /* Importing the Tailwind CSS framework */
+
+/* Your design tokens as plain CSS variables */
+:root { 
+  --background: #ffffff; /* Define a CSS variable for the background color (light mode) */
+  --foreground: #171717; /* Define a CSS variable for the text color (light mode) */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; /* Define a CSS variable for the sans-serif font stack */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; /* Define a CSS variable for the monospaced font stack */
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: dark) { /* Media query to apply styles when the user prefers dark mode */
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0a0a0a; /* Set background color to dark for dark mode */
+    --foreground: #ededed; /* Set foreground (text) color to light for dark mode */
   }
 }
 
+/* Base styles */
+:root { color-scheme: light dark; } /* Indicate to the browser that the page supports both light and dark color schemes */
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--background); /* Set background using the CSS variable defined earlier */
+  color: var(--foreground); /* Set text color using the CSS variable defined earlier */
+  font-family: var(--font-spectral), serif; /* Apply the sans-serif font stack */
+  margin: 0; /* Remove the default margin applied by browsers */
 }
+

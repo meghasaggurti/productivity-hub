@@ -2,9 +2,11 @@
 "use client";
 
 /**
- * Full page view:
- * - Left: collapsible sidebar (workspaces/pages + user panel with logout)
- * - Right: blocks canvas for the selected page
+ * Workspace page layout:
+ * - Left: Sidebar (collapsible + resizable, with context menus)
+ * - Right: BlocksCanvas for the selected page
+ *
+ * Rename/Delete are handled via right-click in the Sidebar now.
  */
 import { useParams } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
@@ -14,13 +16,17 @@ export default function WorkspacePage() {
   const { wsId, pageId } = useParams() as { wsId: string; pageId: string };
 
   return (
-    <div className="min-h-screen grid grid-cols-[280px_1fr]">
+    <div className="min-h-screen flex">
       <Sidebar currentWorkspaceId={wsId} />
-      <div className="p-4">
+      <div className="flex-1 p-4 overflow-y-auto">
         <BlocksCanvas workspaceId={wsId} pageId={pageId} />
       </div>
     </div>
   );
 }
+
+
+
+
 
 

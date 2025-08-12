@@ -1,24 +1,33 @@
+/* 
+  TypeScript configuration for the project.
+  - Defines compiler options like target version, strict mode, and module resolution.
+  - Configures path aliases for easier imports (e.g., @/src).
+  - Includes Next.js plugin for TypeScript support.
+  - Ensures that TypeScript performs strict type checking and handles modern JavaScript features.
+*/
+
 {
   "compilerOptions": {
-    "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [{ "name": "next" }],
-    "baseUrl": ".",
+    "target": "ES2017", // Specifies the target JavaScript version. ES2017 is the target version for the compiled code.
+    "lib": ["dom", "dom.iterable", "esnext"], // Includes type definitions for the DOM, iterable DOM collections, and ESNext (latest JavaScript features).
+    "allowJs": true, // Allows JavaScript files to be included in the TypeScript compilation.
+    "skipLibCheck": true, // Skips type checking of declaration files (`.d.ts`) to speed up compilation.
+    "strict": true, // Enables all strict type-checking options, helping catch common type errors early.
+    "noEmit": true, // Prevents the TypeScript compiler from generating output files (useful when only type-checking is required).
+    "esModuleInterop": true, // Enables compatibility between CommonJS and ESModule syntax for imports and exports.
+    "module": "esnext", // Specifies the module system for the output. `esnext` uses the latest module syntax (ESModules).
+    "moduleResolution": "bundler", // Resolves modules in a way that is compatible with bundlers (like Webpack, Next.js).
+    "resolveJsonModule": true, // Allows importing JSON files as modules, enabling type-checking for JSON.
+    "isolatedModules": true, // Ensures each file is treated as an isolated module, helpful for compatibility with tools like Babel.
+    "jsx": "preserve", // Keeps JSX syntax in the output and allows further processing (e.g., by React or Next.js).
+    "incremental": true, // Enables incremental compilation for faster builds by reusing previous results.
+    "plugins": [{ "name": "next" }], // Includes the Next.js plugin to optimize TypeScript support in Next.js projects.
+    "baseUrl": ".", // Sets the base directory for resolving non-relative module imports (set to root of the project).
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"] // Creates an alias `@/` to resolve files inside the `src/` folder. This allows imports like `@/components/...` to resolve to `src/components/...`.
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"], // Specifies the files to include in the TypeScript project (all `.ts`, `.tsx`, and necessary types).
+  "exclude": ["node_modules"] // Excludes `node_modules` from the TypeScript project to avoid unnecessary type checking in dependencies.
 }
+

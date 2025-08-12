@@ -1,7 +1,9 @@
+// src/components/AuthProvider.tsx
+// src/components/AuthProvider.tsx
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { auth } from "../lib/firebaseClient";
+import { auth } from "@/lib/firebaseAuthClient"; // or "../lib/firebaseAuthClient" if no alias
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 
 type AuthContextType = {
@@ -21,11 +23,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsub = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser ?? null);
       setLoading(false);
     });
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
 
   const logout = async () => {
@@ -43,4 +45,6 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-export{}
+
+
+

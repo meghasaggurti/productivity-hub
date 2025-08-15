@@ -1,31 +1,27 @@
-// src/app/w/[wsId]/p/[pageId]/page.tsx
-"use client";
+'use client';
 
-/**
- * Workspace page layout:
- * - Left: Sidebar (collapsible + resizable, with context menus)
- * - Right: BlocksCanvas for the selected page
- *
- * Rename/Delete are handled via right-click in the Sidebar now.
- */
-import { useParams } from "next/navigation";
-import Sidebar from "@/components/Sidebar";
-import BlocksCanvas from "@/components/BlocksCanvas";
+import { useMemo } from 'react';
+import { useParams } from 'next/navigation';
+import WorkspaceNav from '@/components/WorkspaceNav';
 
 export default function WorkspacePage() {
-  const { wsId, pageId } = useParams() as { wsId: string; pageId: string };
+  const params = useParams() as { wsId?: string | string[]; pageId?: string | string[] };
+  const wsId = useMemo(() => (Array.isArray(params.wsId) ? params.wsId[0] : params.wsId) ?? '', [params.wsId]);
+  const pageId = useMemo(() => (Array.isArray(params.pageId) ? params.pageId[0] : params.pageId) ?? '', [params.pageId]);
+
+  if (!wsId || !pageId) {
+    return <div className="p-6">Choose a workspace/page.</div>;
+  }
 
   return (
-    <div className="min-h-screen flex">
-      <Sidebar currentWorkspaceId={wsId} />
-      <div className="flex-1 p-4 overflow-y-auto">
-        <BlocksCanvas workspaceId={wsId} pageId={pageId} />
+    <div className="min-h-full flex flex-col">
+      <WorkspaceNav workspaceId={wsId} currentPageId={pageId} />
+      <div className="p-4">
+        {/* Your editor/content */}
       </div>
     </div>
   );
 }
-
-
 
 
 

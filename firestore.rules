@@ -1,50 +1,109 @@
-// firestore.rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function signedIn() {
-      return request.auth != null;
+    function isSignedIn() { return request.auth != null; }
+    function isWorkspaceMember(wsId) {
+      return isSignedIn() &&
+             request.auth.uid in get(/databases/$(database)/documents/workspaces/$(wsId)).data.memberIds;
+    }
+    function isWorkspaceOwner(wsId) {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/workspaces/$(wsId)).data.ownerId == request.auth.uid;
     }
 
-    // Check if the requester is a member of a workspace
-    function isWorkspaceMember(ws) {
-      return signedIn() && (request.auth.uid in ws.data.members);
-    }
-
-    // Check roles
-    function isOwner(ws) {
-      return isWorkspaceMember(ws) && ws.data.members[request.auth.uid] == 'owner';
-    }
-    function isEditor(ws) {
-      return isWorkspaceMember(ws) && (
-        ws.data.members[request.auth.uid] == 'owner' ||
-        ws.data.members[request.auth.uid] == 'editor'
-      );
-    }
-    function canRead(ws) {
-      return isWorkspaceMember(ws);
+    // Public (non-sensitive) user directory for invites / avatars
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == uid;
     }
 
     match /workspaces/{wsId} {
-      allow create: if signedIn();
-      allow read: if isWorkspaceMember(resource);
-      // Only owner can update/delete the workspace doc itself
-      allow update, delete: if isOwner(resource);
+      // Read allowed if the reader is in the doc's memberIds
+      allow read: if isSignedIn() && request.auth.uid in resource.data.memberIds;
+
+      // CREATE: owner must be authed user, and memberIds MUST be [uid] exactly.
+      allow create: if isSignedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.memberIds.size() == 1
+        && request.resource.data.memberIds[0] == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'name','ownerId','memberIds','isDeleted','order','createdAt','updatedAt'
+        ]);
+
+      // UPDATE:
+      //   - Any member can update safe fields (name/order/isDeleted/updatedAt)
+      //   - Only the current owner can change ownerId/memberIds
+      allow update: if isSignedIn()
+        && request.auth.uid in resource.data.memberIds
+        && (
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'name','isDeleted','order','updatedAt'
+          ])
+          ||
+          (resource.data.ownerId == request.auth.uid
+           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+             'name','isDeleted','order','updatedAt','memberIds','ownerId'
+           ]))
+        );
+
+      // HARD DELETE workspace: owner only (client-side recursive delete)
+      allow delete: if isWorkspaceOwner(wsId);
 
       // Pages
       match /pages/{pageId} {
-        allow read: if canRead(get(/databases/$(database)/documents/workspaces/$(wsId)));
-        allow create: if isEditor(get(/databases/$(database)/documents/workspaces/$(wsId)));
-        allow update, delete: if isEditor(get(/databases/$(database)/documents/workspaces/$(wsId)));
+        allow read, create, update: if isWorkspaceMember(wsId);
+        // HARD DELETE page: owner only (client deletes page + its blocks first)
+        allow delete: if isWorkspaceOwner(wsId);
 
         // Blocks
         match /blocks/{blockId} {
-          allow read: if canRead(get(/databases/$(database)/documents/workspaces/$(wsId)));
-          allow create, update, delete: if isEditor(get(/databases/$(database)/documents/workspaces/$(wsId)));
+          allow read, create, update: if isWorkspaceMember(wsId);
+          // Allow owner to delete blocks so page purge can run on client
+          allow delete: if isWorkspaceOwner(wsId);
         }
       }
+
+      // Optional per-workspace members subcollection (if you use it)
+      match /members/{uid} {
+        allow read, create, update: if isWorkspaceMember(wsId);
+        allow delete: if false;
+      }
+    }
+
+    // Per-user mirror doc is fine
+    match /workspaceMembers/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Global collections scoped by wsId (if used)
+    match /inbox/{id} {
+      allow read: if isSignedIn() && isWorkspaceMember(resource.data.wsId);
+      allow create, update: if isSignedIn() && isWorkspaceMember(request.resource.data.wsId);
+      allow delete: if false;
+    }
+    match /events/{id} {
+      allow read: if isSignedIn() && isWorkspaceMember(resource.data.wsId);
+      allow create, update: if isSignedIn() && isWorkspaceMember(request.resource.data.wsId);
+      allow delete: if false;
     }
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

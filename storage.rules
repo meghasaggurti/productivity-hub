@@ -1,12 +1,31 @@
 rules_version = '2';
-
-// Craft rules based on data in your Firestore database
-// allow write: if firestore.get(
-//    /databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin;
 service firebase.storage {
   match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read, write: if false;
+    function isSignedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+
+    // Files under workspaces/{wsId}/...
+    match /workspaces/{wsId}/{allPaths=**} {
+      // Member = has a workspaceMembers doc
+      function isMember() {
+        return exists(/databases/$(database)/documents/workspaceMembers/$(wsId + '_' + uid()));
+      }
+
+      // READ: members can read
+      allow read: if isSignedIn() && isMember();
+
+      // WRITE: only editors/owners can upload/delete
+      function role() {
+        return get(/databases/$(database)/documents/workspaceMembers/$(wsId + '_' + uid())).data.role;
+      }
+      allow write: if isSignedIn() && isMember() && role() in ['owner','editor'];
+
+      // Optional: limit file size/types
+      allow create: if request.resource.size < 10 * 1024 * 1024; // 10MB cap
     }
+
+    // Deny everything else by default
+    match /{path=**} { allow read, write: if false; }
   }
 }
+

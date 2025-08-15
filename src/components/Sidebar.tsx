@@ -1,909 +1,612 @@
-//src/components/Sidebar.tsx
+'use client';
 
-"use client";
-
-/**
- * Sidebar (collapsible + resizable) with:
- * - Profile dropdown (Invite Users, My Account, Sign out) — pretty menu
- * - Collapse chevron, Inbox popover, Calendar popover
- * - Workspace dropdown selector (+ add workspace)
- * - Pages: borderless search, + add page, nested pages with toggles
- * - Right-click context menu (pretty) on Workspace & Page: Rename, Move, Trash
- * - Settings & Trash section (below pages)
- * - Footer: Permissions
- *
- * Fully dynamic (Firestore). No placeholders.
- */
-
-import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "./AuthProvider";
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
-  collection,
-  getDocs,
-  onSnapshot,
-  query,
-  where,
-  orderBy,
-  limit,
-  addDoc,
-  updateDoc,
-  doc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebaseDb";
-import { useResizableSidebar } from "@/hooks/useResizableSidebar";
-import {
-  createWorkspaceWithInitialPage,
-  getFirstPageId,
-  renameWorkspace,
-  renamePage,
-  softDeleteWorkspace,
-  softDeletePage,
-} from "@/lib/ops";
+  collection, onSnapshot, query, where, updateDoc, doc, writeBatch, arrayRemove,
+} from 'firebase/firestore';
+import { db, auth } from '@/lib/firebaseDb';
+import type { Workspace } from '@/types/app';
+import WorkspaceTree from './WorkspaceTree';
+import { createWorkspaceWithHome, softDeleteWorkspace, reorderWorkspaces as reorderWorkspacesOp } from '@/lib/ops';
+import { useDragAutoScroll } from '@/hooks/useDragAutoScroll';
+import { useAuth } from '@/components/AuthProvider';
 
-// ---- Icons (custom, simple outlines to avoid look-alikes) ----
-const IconChevron = ({ rotated = false }: { rotated?: boolean }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-    <path
-      d="M9 18l6-6-6-6"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      transform={rotated ? "rotate(180 12 12)" : "none"}
-      style={{ transformOrigin: "12px 12px", transition: "transform 200ms ease" }}
-    />
-  </svg>
-);
+// ---------- Minimal mono icons ----------
+function IconChevron({ open }: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5"
+      className={`transition-transform ${open ? 'rotate-90' : ''}`}>
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
+function IconWorkspace() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="3" y="4" width="18" height="14" rx="2" />
+      <path d="M3 10h18" />
+    </svg>
+  );
+}
+function IconPlus() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+function IconMore() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <circle cx="5" cy="12" r="1.5" />
+      <circle cx="12" cy="12" r="1.5" />
+      <circle cx="19" cy="12" r="1.5" />
+    </svg>
+  );
+}
+function IconHamburger() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  );
+}
+function IconInbox() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M4 4h16v10h-4l-2 3h-4l-2-3H4z" />
+    </svg>
+  );
+}
+function IconCalendar() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4M8 3v4M3 11h18" />
+    </svg>
+  );
+}
+function IconRename() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M3 21h6l12-12-6-6L3 15v6z" />
+      <path d="M15 3l6 6" />
+    </svg>
+  );
+}
+function IconLeave() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M10 17l-5-5 5-5" />
+      <path d="M4 12h12" />
+      <path d="M20 19V5a2 2 0 0 0-2-2h-6" />
+    </svg>
+  );
+}
+function IconTrash() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <rect x="6" y="6" width="12" height="14" rx="2" />
+    </svg>
+  );
+}
 
-const IconInbox = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-    <path fill="currentColor" d="M3 4h18l-2 10h-5l-2 3l-2-3H5L3 4zm2 2l1.2 6H9l1.5 2.2L12 12h4.8L19 6H5z" />
-  </svg>
-);
+// ---------- Types ----------
+type WsWithUi = Workspace & { isDeleted?: boolean; order?: number };
 
-const IconCalendar = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-    <path fill="currentColor" d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2zm13 6H4v12h16V8z" />
-  </svg>
-);
-
-const IconWorkspace = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-    <path fill="currentColor" d="M3 4h8v8H3zM13 4h8v5h-8zM13 11h8v9h-8z" />
-  </svg>
-);
-
-const IconPage = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-    <path fill="currentColor" d="M6 2h9l3 3v15a2 2 0 0 1-2 2H6zM9 7h6v2H9zm0 4h6v2H9z" />
-  </svg>
-);
-
-const IconPlus = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-    <path fill="currentColor" d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2z" />
-  </svg>
-);
-
-const IconSettings = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-    <path
-      fill="currentColor"
-      d="M19.14 12.94a7.07 7.07 0 0 0 .05-.94a7.07 7.07 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.04 7.04 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 12 0H8a.5.5 0 0 0-.49.41l-.36 2.54c-.58.23-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L.62 6.98a.5.5 0 0 0 .12.64l2.03 1.58c-.03.31-.05.63-.05.94s.02.63.05.94L.74 12.66a.5.5 0 0 0-.12.64l1.92 3.32c.13.23.4.33.64.22l2.39-.96c.5.41 1.05.74 1.63.94l.36 2.54c.05.24.25.41.49.41h4c.24 0 .45-.17.49-.41l.36-2.54c.58-.23 1.12-.53 1.63-.94l2.39.96c.24.1.51 0 .64-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM10 8a4 4 0 1 1 0 8a4 4 0 0 1 0-8z"
-    />
-  </svg>
-);
-
-const IconTrash = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-    <path fill="currentColor" d="M9 3h6l1 1h5v2H3V4h5l1-1zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM7 9h2v9H7V9z" />
-  </svg>
-);
-
-const IconUsers = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-    <path
-      fill="currentColor"
-      d="M16 11c1.66 0 3-1.79 3-4s-1.34-4-3-4s-3 1.79-3 4s1.34 4 3 4zM8 12c2.21 0 4-2.24 4-5s-1.79-5-4-5S4 4.24 4 7s1.79 5 4 5zm8 2c-2.67 0-8 1.34-8 4v3h16v-3c0-2.66-5.33-4-8-4zM8 14c-2.67 0-8 1.34-8 4v3h6v-3c0-1.23.5-2.35 1.34-3.31C7.54 14.23 7.76 14 8 14z"
-    />
-  </svg>
-);
-
-const IconPencil = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-    <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83l3.75 3.75l1.83-1.83z"/>
-  </svg>
-);
-
-const IconFolderMove = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-    <path fill="currentColor" d="M10 4l2 2h8v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6h6zm5 5v2h-3v2h3v2l3-3l-3-3z"/>
-  </svg>
-);
-
-// ---- Data types ----
-type WS = { id: string; name: string; createdAt?: number; isDeleted?: boolean };
-type Page = {
-  id: string;
-  title: string;
-  parentId: string | null;
-  order: number;
-  isDeleted?: boolean;
+// ---------- Props ----------
+type Props = {
+  collapsed?: boolean;
+  onToggle?: () => void;
+  currentWorkspaceId?: string;
+  onOpenPage?: (p: any) => void;
+  onOpenSettings?: () => void;
+  onOpenPermissions?: () => void;
+  onOpenTrash?: () => void;
 };
 
-// ---- Build nested tree from flat pages ----
-function buildPageTree(pages: Page[]) {
-  const children: Record<string, Page[]> = {};
-  const root: Page[] = [];
-
-  // Init child buckets
-  pages.forEach((p) => (children[p.id] = children[p.id] || []));
-
-  // Distribute into root/children
-  pages.forEach((p) => {
-    if (p.parentId) {
-      children[p.parentId] = children[p.parentId] || [];
-      children[p.parentId].push(p);
-    } else {
-      root.push(p);
-    }
-  });
-
-  // Sort children by order
-  Object.values(children).forEach((arr) => arr.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
-  root.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
-  return { root, children };
-}
-
-// ---- Utility: collect all descendants for "Move" validation ----
-function collectDescendants(pageId: string, childMap: Record<string, Page[]>, bag = new Set<string>()) {
-  (childMap[pageId] || []).forEach((c) => {
-    bag.add(c.id);
-    collectDescendants(c.id, childMap, bag);
-  });
-  return bag;
-}
-
-export default function Sidebar({ currentWorkspaceId }: { currentWorkspaceId?: string }) {
+// ---------- Sidebar ----------
+export default function Sidebar({
+  collapsed,
+  onToggle,
+  currentWorkspaceId,
+  onOpenPage,
+  onOpenSettings,
+  onOpenPermissions,
+  onOpenTrash,
+}: Props) {
   const router = useRouter();
-  const { user, logout } = useAuth();
-  const { collapsed, width, onMouseDown, toggleCollapsed } = useResizableSidebar();
+  const { user } = useAuth();
 
-  // Data state
-  const [workspaces, setWorkspaces] = useState<WS[]>([]);
-  const [selectedWs, setSelectedWs] = useState<string | undefined>(currentWorkspaceId);
-  const [pages, setPages] = useState<Page[]>([]);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // --- NEW: controlled/uncontrolled collapse support ---
+  const [localCollapsed, setLocalCollapsed] = useState(false);
+  const isControlled = typeof collapsed === 'boolean';
+  const isCollapsed = isControlled ? !!collapsed : localCollapsed;
+  const toggle = onToggle ?? (() => setLocalCollapsed((c) => !c));
+  // ----------------------------------------------------
 
-  // Quick info popovers & dropdowns
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [wsOpen, setWsOpen] = useState(false);
-  const [inboxOpen, setInboxOpen] = useState(false);
-  const [calOpen, setCalOpen] = useState(false);
+  const [workspaces, setWorkspaces] = useState<WsWithUi[]>([]);
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+  const [menuForWs, setMenuForWs] = useState<string | null>(null);
+  const [renamingWs, setRenamingWs] = useState<string | null>(null);
 
-  // Right-click context menu state
-  type MenuTarget =
-    | { kind: "workspace"; wsId: string; label: string }
-    | { kind: "page"; wsId: string; pageId: string; label: string };
-  const [ctxOpen, setCtxOpen] = useState(false);
-  const [ctxPos, setCtxPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [ctxTarget, setCtxTarget] = useState<MenuTarget | null>(null);
-
-  // Move menu for pages
-  const [moveOpen, setMoveOpen] = useState(false);
-  const [movePos, setMovePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [moveSource, setMoveSource] = useState<{ wsId: string; pageId: string; label: string } | null>(null);
-
-  // Profile/inbox/calendar anchor refs (for positioning if needed later)
-  const profileBtnRef = useRef<HTMLButtonElement | null>(null);
-  const inboxBtnRef = useRef<HTMLButtonElement | null>(null);
-  const calBtnRef = useRef<HTMLButtonElement | null>(null);
-  const wsBtnRef = useRef<HTMLButtonElement | null>(null);
-
-  // Optional realtime items
-  const [inboxItems, setInboxItems] = useState<any[]>([]);
-  const [events, setEvents] = useState<any[]>([]);
-
-  // Avatar fallback
-  const avatarFallback = useMemo(
-    () => (user?.displayName?.[0] ?? user?.email?.[0] ?? "?").toUpperCase(),
-    [user]
-  );
-
-  // Load workspaces
+  // click-outside for the little "..." menus
+  const menuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (!user) return;
-    const q = query(collection(db, "workspaces"), where("memberIds", "array-contains", user.uid));
+    const onDocClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuForWs(null);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
 
-    const unsub = onSnapshot(
-      q,
-      async (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as WS[];
-        const clean = list.filter((w) => !w.isDeleted);
-        clean.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-        setWorkspaces(clean);
-        if (!selectedWs && clean.length > 0) setSelectedWs(clean[0].id);
-      },
-      async (err) => {
-        if ((err as any).code === "failed-precondition") {
-          const snap2 = await getDocs(q);
-          const list = snap2.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as WS[];
-          const clean = list.filter((w) => !w.isDeleted);
-          clean.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-          setWorkspaces(clean);
-          if (!selectedWs && clean.length > 0) setSelectedWs(clean[0].id);
-        } else {
-          console.error("[Sidebar] workspaces error:", err);
-        }
-      }
-    );
-    return () => unsub();
-  }, [user, selectedWs]);
-
-  // Load pages
+  // live workspaces for the member
   useEffect(() => {
-    if (!selectedWs) return;
-    const q = query(collection(db, "workspaces", selectedWs, "pages"));
-    const unsub = onSnapshot(
-      q,
-      async (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Page[];
-        const clean = list.filter((p) => !p.isDeleted);
-        clean.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-        setPages(clean);
-      },
-      async (err) => {
-        if ((err as any).code === "failed-precondition") {
-          const snap2 = await getDocs(q);
-          const list = snap2.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Page[];
-          const clean = list.filter((p) => !p.isDeleted);
-          clean.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-          setPages(clean);
-        } else {
-          console.error("[Sidebar] pages error:", err);
-        }
-      }
-    );
-    return () => unsub();
-  }, [selectedWs]);
-
-  // Optional inbox/events
-  useEffect(() => {
-    if (!user) return;
-    const q = query(collection(db, "userData", user.uid, "inbox"), orderBy("createdAt", "desc"), limit(10));
-    const unsub = onSnapshot(q, (snap) => {
-      setInboxItems(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+    if (!user?.uid) { setWorkspaces([]); return; }
+    const qWs = query(collection(db, 'workspaces'), where('memberIds', 'array-contains', user.uid));
+    const off = onSnapshot(qWs, (snap) => {
+      const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as WsWithUi[];
+      rows.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
+      setWorkspaces(rows);
+      // open the current workspace's tree by default
+      setOpenMap((prev) => {
+        const next: Record<string, boolean> = { ...prev };
+        if (currentWorkspaceId && next[currentWorkspaceId] === undefined) next[currentWorkspaceId] = true;
+        return next;
+      });
     });
-    return () => unsub();
-  }, [user]);
+    return () => off();
+  }, [user?.uid, currentWorkspaceId]);
 
-  useEffect(() => {
-    if (!user) return;
+  // owner count (guard last-delete)
+  const ownedActiveCount = useMemo(() => {
+    if (!user?.uid) return 0;
+    return workspaces.filter((w) => w.ownerId === user.uid && w.isDeleted !== true).length;
+  }, [workspaces, user?.uid]);
+
+  const getActiveWsId = () => currentWorkspaceId || workspaces.find((w) => w.isDeleted !== true)?.id;
+
+  async function renameWorkspace(wsId: string, newName: string) {
+    await updateDoc(doc(db, 'workspaces', wsId), { name: newName || 'Untitled workspace', updatedAt: Date.now() });
+  }
+  async function leaveWorkspace(wsId: string) {
+    if (!user?.uid) return;
+    await updateDoc(doc(db, 'workspaces', wsId), { memberIds: arrayRemove(user.uid), updatedAt: Date.now() });
+  }
+  async function addRootPage(wsId: string) {
     const now = Date.now();
-    const q = query(
-      collection(db, "userData", user.uid, "events"),
-      where("startMs", ">", now),
-      orderBy("startMs", "asc"),
-      limit(5)
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      setEvents(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
-    });
-    return () => unsub();
-  }, [user]);
+    const pageRef = doc(collection(db, 'workspaces', wsId, 'pages'));
+    const b = writeBatch(db);
+    b.set(pageRef, { title: 'Untitled', parentId: null, order: now, isDeleted: false, createdAt: now, updatedAt: now });
+    await b.commit();
+    setOpenMap((m) => ({ ...m, [wsId]: true }));
+  }
 
-  // Build nested structure
-  const { root, children: childMap } = useMemo(() => buildPageTree(pages), [pages]);
+  // open panels (via ?panel=)
+  const goSettings = () => { if (onOpenSettings) return onOpenSettings(); const id = getActiveWsId(); if (id) router.push(`/w/${id}?panel=settings`); };
+  const goPermissions = () => { if (onOpenPermissions) return onOpenPermissions(); const id = getActiveWsId(); if (id) router.push(`/w/${id}?panel=permissions`); };
+  const goTrash = () => { if (onOpenTrash) return onOpenTrash(); const id = getActiveWsId(); if (id) router.push(`/w/${id}?panel=trash`); };
 
-  // Search state
-  const [pageQuery, setPageQuery] = useState("");
-  const normalizedQuery = pageQuery.trim().toLowerCase();
-  const matchQuery = (p: Page) => !normalizedQuery || (p.title ?? "").toLowerCase().includes(normalizedQuery);
+  // DnD infra
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const wsAutoScroll = useDragAutoScroll(listRef);
+  const [wsDraggingId, setWsDraggingId] = useState<string | null>(null);
+  const [wsIndicator, setWsIndicator] = useState<{ y: number } | null>(null);
 
-  // Add workspace
-  const addWorkspace = async () => {
-    if (!user) return;
-    const name = prompt("Workspace name?")?.trim();
-    if (!name) return;
-    const { wsId, pageId } = await createWorkspaceWithInitialPage(user.uid, name);
-    setSelectedWs(wsId);
-    router.replace(`/w/${wsId}/p/${pageId}`);
-  };
+  async function commitWorkspaceOrder(orderedActiveIds: string[]) {
+    try {
+      if (typeof reorderWorkspacesOp === 'function') await reorderWorkspacesOp(orderedActiveIds);
+      else {
+        const b = writeBatch(db);
+        orderedActiveIds.forEach((id, i) => b.update(doc(db, 'workspaces', id), { order: i, updatedAt: Date.now() }));
+        await b.commit();
+      }
+    } finally { setWsDraggingId(null); setWsIndicator(null); }
+  }
 
-  // Select workspace from dropdown
-  const selectWorkspace = async (wsId: string) => {
-    setSelectedWs(wsId);
-    const firstPageId = await getFirstPageId(wsId);
-    router.replace(`/w/${wsId}/p/${firstPageId}`);
-  };
+  // resizer (hydration-safe)
+  const [mounted, setMounted] = useState(false);
+  const [width, setWidth] = useState<number>(280);
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const fromLS = Number(localStorage.getItem('sidebarWidth'));
+      if (Number.isFinite(fromLS) && fromLS >= 200 && fromLS <= 420) setWidth(fromLS);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    if (!isCollapsed && mounted) localStorage.setItem('sidebarWidth', String(width));
+  }, [width, isCollapsed, mounted]);
 
-  // Add new page at root
-  const addPage = async () => {
-    if (!selectedWs) return;
-    const nextOrder = (pages.at(-1)?.order ?? -1) + 1;
-    await addDoc(collection(db, "workspaces", selectedWs, "pages"), {
-      title: "Untitled Page",
-      parentId: null,
-      order: nextOrder,
-      isDeleted: false,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-  };
+  const isDraggingResizer = useRef(false);
+  useEffect(() => {
+    function onMove(e: MouseEvent) { if (!isDraggingResizer.current) return; setWidth(() => Math.min(420, Math.max(200, e.clientX))); }
+    function onUp() { isDraggingResizer.current = false; document.body.style.cursor = ''; document.body.style.userSelect = ''; }
+    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, []);
 
-  // Toggle expand state
-  const toggleExpand = (pageId: string) => {
-    setExpanded((prev) => ({ ...prev, [pageId]: !prev[pageId] }));
-  };
+  const font = 'font-sans text-[13px]';
+  const asideWidth = isCollapsed ? 56 : (mounted ? width : 280);
 
-  // Profile actions
-  const onInviteUsers = () => {
-    router.push(`/w/${selectedWs ?? ""}/invite`);
-    setProfileOpen(false);
-  };
-  const onMyAccount = () => {
-    router.push("/settings");
-    setProfileOpen(false);
-  };
-  const onSignOut = async () => {
-    await logout();
-    setProfileOpen(false);
-    router.replace("/");
-  };
-
-  // Right-click (context menu)
-  const openContextMenu = (e: React.MouseEvent, target: MenuTarget) => {
-    e.preventDefault();
-    setCtxTarget(target);
-    setCtxPos({ x: e.clientX, y: e.clientY });
-    setCtxOpen(true);
-    setMoveOpen(false);
-  };
-
-  // Move page helper (update parentId and push to end of target group)
-  const movePage = async (wsId: string, pageId: string, newParentId: string | null) => {
-    // Compute last order inside the new parent (root or specific)
-    const siblings = pages
-      .filter((p) => (newParentId ? p.parentId === newParentId : p.parentId == null) && !p.isDeleted)
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    const nextOrder = (siblings.at(-1)?.order ?? -1) + 1;
-    await updateDoc(doc(db, "workspaces", wsId, "pages", pageId), {
-      parentId: newParentId,
-      order: nextOrder,
-      updatedAt: Date.now(),
-    });
-  };
-
-  // Open pretty move menu for page
-  const openMoveMenu = (e: React.MouseEvent, wsId: string, pageId: string, label: string) => {
-    e.preventDefault();
-    setMoveSource({ wsId, pageId, label });
-    setMovePos({ x: e.clientX + 8, y: e.clientY + 8 });
-    setMoveOpen(true);
-    setCtxOpen(false);
-  };
-
-  // Render nested page node with toggle, right-click menu, and search filtering
-  const renderPageNode = (p: Page) => {
-    const kids = childMap[p.id] || [];
-    const hasKids = kids.length > 0;
-
-    // Whether this branch should show under search
-    const branchMatches =
-      matchQuery(p) ||
-      kids.some(
-        (c) =>
-          matchQuery(c) ||
-          (childMap[c.id] || []).some((gc) => matchQuery(gc))
-      );
-    if (!branchMatches) return null;
-
-    return (
-      <div key={p.id}>
-        <Link
-          href={`/w/${selectedWs}/p/${p.id}`}
-          onContextMenu={(e) => openContextMenu(e, { kind: "page", wsId: selectedWs!, pageId: p.id, label: p.title })}
-          className="group flex items-center gap-2 px-2 py-1 rounded hover:bg-black/5 transition"
-        >
-          {/* Caret toggle */}
-          {hasKids ? (
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                toggleExpand(p.id);
-              }}
-              className="p-0.5 rounded hover:bg-black/10"
-              aria-label={expanded[p.id] ? "Collapse" : "Expand"}
-              title={expanded[p.id] ? "Collapse" : "Expand"}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
-                <path
-                  d="M9 18l6-6-6-6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  transform={expanded[p.id] ? "rotate(90 12 12)" : "rotate(0 12 12)"}
-                  style={{ transformOrigin: "12px 12px", transition: "transform 150ms ease" }}
-                />
-              </svg>
-            </button>
-          ) : (
-            <span className="inline-block w-[18px]" />
-          )}
-
-          {/* Page icon + title */}
-          <IconPage />
-          <span className="truncate">{p.title}</span>
-        </Link>
-
-        {/* Children */}
-        {hasKids && expanded[p.id] && (
-          <div className="ml-5 mt-1 space-y-1">
-            {kids.map((child) => renderPageNode(child))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // Styles for pretty menus
-  const menuClass =
-    "z-50 bg-white backdrop-blur border border-black/10 shadow-xl rounded-xl overflow-hidden";
-  const menuItem =
-    "w-full text-left px-3 py-2 text-sm hover:bg-black/5 transition flex items-center gap-2";
-  const sectionTitle = "px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500";
-
-  // Sidebar width style
-  const sidebarStyle = collapsed ? { width: 64 } : { width };
+  // helper: open a workspace
+  const openWorkspace = (id: string) => router.push(`/w/${id}`);
 
   return (
     <aside
-      className="h-screen flex flex-col relative select-none bg-gradient-to-b from-gray-50 to-gray-100"
-      style={sidebarStyle}
+      className="h-screen bg-[#F8F5EF] text-black transition-[width] duration-150 flex flex-col relative"
+      style={{ width: asideWidth }}
       aria-label="Sidebar"
-      onClick={() => {
-        // Clicking anywhere inside sidebar closes context/move menus
-        setCtxOpen(false);
-        setMoveOpen(false);
-      }}
     >
-      {/* === Top: Profile + Collapse + Inbox + Calendar === */}
-      <div className="h-12 flex items-center gap-2 px-3 relative">
-        {/* Profile */}
-        <button
-          ref={profileBtnRef}
-          onClick={(e) => {
-            e.stopPropagation();
-            setProfileOpen((s) => !s);
-            setCtxOpen(false);
-            setMoveOpen(false);
-          }}
-          className="flex items-center gap-2 p-1 rounded hover:bg-black/5 transition"
-          aria-haspopup="menu"
-          aria-expanded={profileOpen}
-          title="Account"
-        >
-          {user?.photoURL ? (
-            <img src={user.photoURL!} alt="avatar" className="size-8 rounded-full border" />
-          ) : (
-            <div className="size-8 rounded-full border grid place-items-center text-sm bg-white">
-              {(user?.displayName ?? user?.email ?? "?").slice(0, 1).toUpperCase()}
-            </div>
-          )}
-          {!collapsed && (
-            <div className="text-left">
-              <div className="text-sm font-medium leading-tight">
-                {user?.displayName ?? "Unnamed"}
-              </div>
-              <div className="text-[11px] text-gray-500 leading-tight">{user?.email}</div>
-            </div>
-          )}
-        </button>
-
-        {/* Collapse chevron */}
-        <button
-          onClick={toggleCollapsed}
-          className="ml-auto p-1 rounded hover:bg-black/5 transition"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={collapsed ? "Expand" : "Collapse"}
-        >
-          <IconChevron rotated={collapsed} />
-        </button>
-
-        {/* Inbox */}
-        <button
-          ref={inboxBtnRef}
-          onClick={(e) => {
-            e.stopPropagation();
-            setInboxOpen((s) => !s);
-            setProfileOpen(false);
-            setCalOpen(false);
-          }}
-          className="p-1 rounded hover:bg-black/5 transition relative"
-          aria-haspopup="dialog"
-          aria-expanded={inboxOpen}
-          title="Inbox"
-        >
-          <IconInbox />
-          {inboxItems.length > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-red-500" />
-          )}
-        </button>
-
-        {/* Calendar */}
-        <button
-          ref={calBtnRef}
-          onClick={(e) => {
-            e.stopPropagation();
-            setCalOpen((s) => !s);
-            setInboxOpen(false);
-            setProfileOpen(false);
-          }}
-          className="p-1 rounded hover:bg-black/5 transition"
-          aria-haspopup="dialog"
-          aria-expanded={calOpen}
-          title="Upcoming events"
-        >
-          <IconCalendar />
-        </button>
-
-        {/* Profile menu */}
-        {profileOpen && (
-          <div
-            className={`${menuClass} absolute top-12 left-3 w-64`}
-            role="menu"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-3 py-2">
-              <div className="text-sm font-medium">{user?.displayName ?? "Account"}</div>
-              <div className="text-xs text-gray-500">{user?.email}</div>
-            </div>
-            <div className="h-px bg-black/5" />
-            <div className={sectionTitle}>Collaboration</div>
-            <button className={menuItem} onClick={onInviteUsers} role="menuitem">
-              <IconUsers />
-              Invite users
+      {/* Header: profile + icons + hamburger */}
+      <div className="h-12 px-2 flex items-center justify-between">
+        {!isCollapsed ? (
+          <div className="flex items-center gap-2">
+            <UserProfileMenu
+              goSettings={goSettings}
+              goPermissions={goPermissions}
+              currentWsId={getActiveWsId() || undefined}
+              userName={user?.displayName || user?.email || 'Profile'}
+              photoURL={(user as any)?.photoURL || undefined}
+            />
+            <button className="rounded-md p-1 hover:bg.black/5" title="Inbox">
+              <IconInbox />
             </button>
-            <div className="h-px bg-black/5" />
-            <div className={sectionTitle}>Account</div>
-            <button className={menuItem} onClick={onMyAccount} role="menuitem">
-              <IconSettings />
-              My account
-            </button>
-            <button
-              className={`${menuItem} text-red-600 hover:bg-red-50`}
-              onClick={onSignOut}
-              role="menuitem"
-            >
-              <IconTrash />
-              Sign out
+            <button className="rounded-md p-1 hover:bg.black/5" title="Calendar">
+              <IconCalendar />
             </button>
           </div>
+        ) : (
+          <div />
         )}
 
-        {/* Inbox popover */}
-        {inboxOpen && (
-          <div
-            role="dialog"
-            className={`${menuClass} absolute top-12 right-12 w-80 p-2`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-2 py-1 text-xs text-gray-500">Inbox</div>
-            <div className="max-h-72 overflow-auto">
-              {inboxItems.length === 0 ? (
-                <div className="p-2 text-sm text-gray-600">No recent activity.</div>
-              ) : (
-                inboxItems.map((it) => (
-                  <div key={it.id} className="px-2 py-2 rounded hover:bg-black/5">
-                    <div className="text-sm font-medium">{it.title ?? "Update"}</div>
-                    <div className="text-xs text-gray-500">{it.description ?? ""}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Calendar popover */}
-        {calOpen && (
-          <div
-            role="dialog"
-            className={`${menuClass} absolute top-12 right-2 w-96 p-2`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-2 py-1 text-xs text-gray-500">Upcoming events</div>
-            <div className="max-h-72 overflow-auto">
-              {events.length === 0 ? (
-                <div className="p-2 text-sm text-gray-600">
-                  No upcoming events. Connect Google Calendar to see items here.
-                </div>
-              ) : (
-                events.map((ev) => (
-                  <div key={ev.id} className="px-2 py-2 rounded hover:bg-black/5">
-                    <div className="text-sm font-medium">{ev.summary ?? "Event"}</div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(ev.startMs).toLocaleString()} — {new Date(ev.endMs).toLocaleString()}
-                    </div>
-                    {ev.location && <div className="text-xs text-gray-500">{ev.location}</div>}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
+        <button
+          className="inline-flex items-center gap-2 rounded-md px-2 py-1 hover:bg-neutral-100"
+          title={isCollapsed ? 'Expand' : 'Collapse'}
+          onClick={toggle}
+        >
+          <IconHamburger />
+        </button>
       </div>
 
-      {/* === Workspace dropdown + Add (+) === */}
-      <div className="px-3 pt-3">
-        <div className="flex items-center gap-2">
+      {/* Workspaces header */}
+      {!isCollapsed && (
+        <div className="px-3 pt-2 pb-1 flex items-center justify-between group">
+          <div className="text-xs uppercase tracking-wide opacity-60">Workspaces</div>
           <button
-            ref={wsBtnRef}
-            onClick={(e) => {
-              e.stopPropagation();
-              setWsOpen((s) => !s);
-              setCtxOpen(false);
-              setMoveOpen(false);
+            className="opacity-0 group-hover:opacity-100 rounded px-1 py-0.5"
+            title="New workspace"
+            onClick={async () => {
+              try { await createWorkspaceWithHome(); }
+              catch (e: any) { alert(e?.message || 'Could not create workspace (check Firestore rules).'); }
             }}
-            className={`flex-1 text-left px-2 py-2 rounded-lg transition ${collapsed ? "hidden" : "hover:bg-black/5"}`}
-            aria-haspopup="listbox"
-            aria-expanded={wsOpen}
-            title="Choose workspace"
-          >
-            <div className="flex items-center gap-2">
-              <IconWorkspace />
-              <span className="truncate">
-                {workspaces.find((w) => w.id === selectedWs)?.name ?? "Select workspace"}
-              </span>
-              <span className="ml-auto">
-                <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
-                  <path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="2" />
-                </svg>
-              </span>
-            </div>
-          </button>
-
-          <button
-            onClick={addWorkspace}
-            className="p-2 rounded-lg hover:bg-black/5 transition"
-            aria-label="Add workspace"
-            title="Add workspace"
           >
             <IconPlus />
           </button>
         </div>
+      )}
 
-        {wsOpen && !collapsed && (
-          <div
-            role="listbox"
-            className={`${menuClass} mt-2 max-h-64 overflow-auto`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {workspaces.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-gray-600">No workspaces yet.</div>
-            ) : (
-              workspaces.map((w) => (
-                <button
-                  key={w.id}
-                  onClick={() => {
-                    selectWorkspace(w.id);
-                    setWsOpen(false);
+      {/* Body list */}
+      <div ref={listRef} className="px-2 pb-2 overflow-auto flex-1">
+        {!user?.uid ? (
+          <div className="text-sm opacity-60 px-2">Sign in to see your workspaces.</div>
+        ) : (
+          <ul className="space-y-1">
+            {workspaces.filter((w) => w.isDeleted !== true).map((ws) => {
+              const isOpen = !!openMap[ws.id];
+              const isOwner = ws.ownerId === user?.uid;
+              const disableTrash = isOwner && ownedActiveCount <= 1;
+
+              return (
+                <li
+                  key={ws.id}
+                  className="group"
+                  draggable={!isCollapsed}
+                  onDragStart={(e) => { setWsDraggingId(ws.id); e.dataTransfer.effectAllowed = 'move'; }}
+                  onDragEnd={() => { setWsDraggingId(null); setWsIndicator(null); }}
+                  onDragOver={(e) => {
+                    if (!wsDraggingId || wsDraggingId === ws.id) return;
+                    const row = e.currentTarget.firstChild as HTMLElement | null;
+                    if (!row) return;
+                    const r = row.getBoundingClientRect();
+                    const y = e.clientY - r.top;
+                    const h = r.height || 1;
+                    setWsIndicator({ y: y > h / 2 ? r.bottom : r.top });
+                    wsAutoScroll.onDragOver(e);
+                    e.preventDefault();
                   }}
-                  onContextMenu={(e) =>
-                    openContextMenu(e, { kind: "workspace", wsId: w.id, label: w.name })
-                  }
-                  className={`w-full text-left px-3 py-2 hover:bg-black/5 ${
-                    w.id === selectedWs ? "bg-black/5" : ""
-                  }`}
-                  role="option"
-                  aria-selected={w.id === selectedWs}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    if (!wsDraggingId || wsDraggingId === ws.id) return;
+                    const active = workspaces.filter((w) => w.isDeleted !== true);
+                    const ids = active.map((w) => w.id);
+                    const from = ids.indexOf(wsDraggingId);
+                    const targetIndex = ids.indexOf(ws.id);
+
+                    const row = e.currentTarget.firstChild as HTMLElement | null;
+                    const r = row?.getBoundingClientRect();
+                    const after = r ? (e.clientY - r.top) > (r.height! / 2) : false;
+                    let to = targetIndex + (after ? 1 : 0);
+                    to = Math.max(0, Math.min(ids.length, to));
+                    if (from < 0 || to < 0 || from === to || from === to - 1) { setWsDraggingId(null); setWsIndicator(null); return; }
+
+                    const reordered = ((): typeof active => {
+                      const a = active.slice();
+                      const [m] = a.splice(from, 1);
+                      a.splice(to > from ? to - 1 : to, 0, m);
+                      return a;
+                    })();
+                    const rest = workspaces.filter((w) => w.isDeleted === true);
+                    setWorkspaces([...reordered, ...rest]);
+                    await commitWorkspaceOrder(reordered.map((w) => w.id));
+                  }}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="inline-block size-2 rounded-full bg-blue-500" />
-                    <span className="truncate">{w.name}</span>
+                  <div className="flex items-center gap-1 px-2 py-1 rounded hover:bg-neutral-100">
+                    {!isCollapsed && (
+                      <button
+                        className="px-1 py-0.5 rounded hover:bg-black/10"
+                        onClick={() => setOpenMap((m) => ({ ...m, [ws.id]: !m[ws.id] }))}
+                        aria-label="toggle workspace"
+                        title={isOpen ? 'Collapse' : 'Expand'}
+                      >
+                        <IconChevron open={isOpen} />
+                      </button>
+                    )}
+
+                    <IconWorkspace />
+
+                    {!isCollapsed && (
+                      <>
+                        {renamingWs === ws.id ? (
+                          <input
+                            autoFocus
+                            defaultValue={ws.name}
+                            onBlur={async (e) => { await renameWorkspace(ws.id, e.currentTarget.value.trim()); setRenamingWs(null); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur(); }}
+                            className="ml-2 flex-1 bg-white border px-2 py-1 rounded text-sm"
+                          />
+                        ) : (
+                          <button
+                            className="ml-2 flex-1 text-left text-sm truncate"
+                            title={ws.name}
+                            // CLICK → open workspace
+                            onClick={() => openWorkspace(ws.id)}
+                            // Double-click → rename
+                            onDoubleClick={() => setRenamingWs(ws.id)}
+                          >
+                            {ws.name}
+                          </button>
+                        )}
+
+                        {/* Add a root page */}
+                        <button
+                          className="opacity-0 group-hover:opacity-100 rounded px-1 py-0.5 hover:bg-black/10"
+                          title="Add page"
+                          onClick={() => addRootPage(ws.id)}
+                        >
+                          <IconPlus />
+                        </button>
+
+                        {/* Menu */}
+                        <div className="relative" ref={menuRef}>
+                          <button
+                            className="opacity-0 group-hover:opacity-100 rounded px-1 py-0.5 hover:bg-black/10"
+                            onClick={() => setMenuForWs(menuForWs === ws.id ? null : ws.id)}
+                            title="More"
+                          >
+                            <IconMore />
+                          </button>
+                          {menuForWs === ws.id && (
+                            <div
+                              className={`${font} absolute right-0 top-7 z-20 w-48 bg-white border border-neutral-200 rounded-lg shadow-md p-1`}
+                            >
+                              <button
+                                className="w-full flex items-center gap-2 px-3 py-2 rounded-md hover:bg-neutral-100"
+                                onClick={() => { setRenamingWs(ws.id); setMenuForWs(null); }}
+                              >
+                                <IconRename /> <span>Rename</span>
+                              </button>
+
+                              <button
+                                className="w-full flex items-center gap-2 px-3 py-2 rounded-md hover:bg-neutral-100"
+                                onClick={async () => {
+                                  setMenuForWs(null);
+                                  if (confirm('Leave this workspace? You will lose access until re-invited.')) {
+                                    await leaveWorkspace(ws.id);
+                                  }
+                                }}
+                              >
+                                <IconLeave /> <span>Leave workspace</span>
+                              </button>
+
+                              <button
+                                disabled={(isOwner && ownedActiveCount <= 1) || !isOwner}
+                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-md ${
+                                  (isOwner && ownedActiveCount <= 1) || !isOwner
+                                    ? 'opacity-40 cursor-not-allowed'
+                                    : 'hover:bg-neutral-100 text-red-600'
+                                }`}
+                                onClick={async () => {
+                                  if ((isOwner && ownedActiveCount <= 1) || !isOwner) return;
+                                  setMenuForWs(null);
+                                  if (confirm('Move workspace to Trash?')) {
+                                    await softDeleteWorkspace(ws.id);
+                                  }
+                                }}
+                              >
+                                <IconTrash /> <span>Trash</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
-                </button>
-              ))
-            )}
-          </div>
+
+                  {/* Pages under this workspace */}
+                  {!isCollapsed && isOpen && (
+                    <div className="pl-7 pr-1 py-1">
+                      <WorkspaceTree
+                        wsId={ws.id}
+                        onOpen={(p: any) => {
+                          if (onOpenPage) return onOpenPage(p);
+                          // fallback: route to the page
+                          const pageId = p?.id;
+                          if (ws.id && pageId) router.push(`/w/${ws.id}/p/${pageId}`);
+                        }}
+                      />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
 
-      {/* === Page search + Add page (+) === */}
-      <div className={`px-3 pt-3 ${collapsed ? "hidden" : ""}`}>
-        <div className="flex items-center gap-2">
-          <input
-            value={pageQuery}
-            onChange={(e) => setPageQuery(e.target.value)}
-            placeholder="Search pages…"
-            className="flex-1 px-3 py-2 rounded-lg bg-black/5 outline-none"
-            aria-label="Search pages"
-          />
-          <button
-            onClick={addPage}
-            className="p-2 rounded-lg hover:bg-black/5 transition"
-            aria-label="Add page"
-            title="Add page"
-          >
-            <IconPlus />
-          </button>
+      {/* Footer actions */}
+      {!isCollapsed && (
+        <div className="px-2 py-3">
+          <nav className={`${font} space-y-1`}>
+            <button className="w-full text-left px-2 py-1 rounded hover:bg-neutral-100" onClick={goSettings}>Settings</button>
+            <button className="w-full text-left px-2 py-1 rounded hover:bg-neutral-100" onClick={goPermissions}>Permissions</button>
+            <button className="w-full text-left px-2 py-1 rounded hover:bg-neutral-100" onClick={goTrash}>Trash</button>
+          </nav>
         </div>
-      </div>
+      )}
 
-      {/* === Pages (nested) === */}
-      <div className={`flex-1 overflow-y-auto px-3 py-2 ${collapsed ? "hidden" : ""}`}>
-        <nav className="space-y-1">
-          {root.filter((p) => matchQuery(p)).map((p) => renderPageNode(p))}
-        </nav>
-      </div>
-
-      {/* === Settings & Trash === */}
-      <div className={`px-3 pb-3 space-y-2 ${collapsed ? "hidden" : ""}`}>
-        <Link
-          href="/settings"
-          className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-black/5 transition"
-          title="Settings"
-        >
-          <IconSettings />
-          <span>Settings</span>
-        </Link>
-
-        <Link
-          href="/trash"
-          className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-black/5 transition"
-          title="Trash"
-        >
-          <IconTrash />
-          <span>Trash</span>
-        </Link>
-      </div>
-
-      {/* === Footer: Permissions === */}
-      <div className={`mt-auto px-3 pb-3 ${collapsed ? "hidden" : ""}`}>
-        <Link
-          href={`/w/${selectedWs ?? ""}/permissions`}
-          className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-black/5 transition"
-          title="Permissions"
-        >
-          <IconUsers />
-          <span>Permissions</span>
-        </Link>
-      </div>
-
-      {/* === Resizer handle === */}
-      {!collapsed && (
+      {/* Global indicator line for workspace reorder */}
+      {wsIndicator && (
         <div
-          onMouseDown={onMouseDown}
-          className="absolute top-0 right-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-black/10"
-          title="Drag to resize"
-          aria-label="Resize sidebar"
+          className="pointer-events-none fixed z-50 h-[2px] bg-black/40"
+          style={{ top: wsIndicator.y - 1, left: 16, right: 24 }}
         />
       )}
 
-      {/* === Context menu (pretty) for Workspace/Page === */}
-      {ctxOpen && ctxTarget && (
+      {/* Resizer (only when expanded) */}
+      {!isCollapsed && (
         <div
-          className={`${menuClass} fixed`}
-          style={{ top: ctxPos.y, left: ctxPos.x, width: 220 }}
-          role="menu"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="px-3 py-2">
-            <div className="text-xs text-gray-500">
-              {ctxTarget.kind === "workspace" ? "Workspace" : "Page"}
-            </div>
-            <div className="text-sm font-medium truncate">{ctxTarget.label}</div>
-          </div>
-          <div className="h-px bg-black/5" />
-          {/* Rename */}
-          <button
-            className={menuItem}
-            onClick={async () => {
-              if (ctxTarget.kind === "workspace") {
-                const name = prompt("New workspace name?")?.trim();
-                if (name) await renameWorkspace(ctxTarget.wsId, name);
-              } else {
-                const name = prompt("New page title?")?.trim();
-                if (name) await renamePage(ctxTarget.wsId, ctxTarget.pageId, name);
-              }
-              setCtxOpen(false);
-            }}
-            role="menuitem"
-          >
-            🖊️  Rename
-          </button>
-          {/* Move (pages only) */}
-          {ctxTarget.kind === "page" && (
-            <button
-              className={menuItem}
-              onClick={(e) => {
-                openMoveMenu(e, ctxTarget.wsId, ctxTarget.pageId, ctxTarget.label);
-              }}
-              role="menuitem"
-            >
-              📂 Move…
-            </button>
-          )}
-          {/* Trash */}
-          <button
-            className={`${menuItem} text-red-600 hover:bg-red-50`}
-            onClick={async () => {
-              if (ctxTarget.kind === "workspace") {
-                const ok = confirm(
-                  `Move entire workspace "${ctxTarget.label}" to Trash?\n(All pages will be hidden until restored.)`
-                );
-                if (ok) await softDeleteWorkspace(ctxTarget.wsId);
-              } else {
-                const ok = confirm(`Move page "${ctxTarget.label}" to Trash?`);
-                if (ok) await softDeletePage(ctxTarget.wsId, ctxTarget.pageId);
-              }
-              setCtxOpen(false);
-            }}
-            role="menuitem"
-          >
-            🗑️ Delete
-          </button>
-        </div>
-      )}
-
-      {/* === Move menu (pretty) for pages === */}
-      {moveOpen && moveSource && selectedWs && (
-        <div
-          className={`${menuClass} fixed`}
-          style={{ top: movePos.y, left: movePos.x, width: 280 }}
-          role="dialog"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="px-3 py-2">
-            <div className="text-xs text-gray-500">Move page</div>
-            <div className="text-sm font-medium truncate">{moveSource.label}</div>
-          </div>
-          <div className="h-px bg-black/5" />
-          <div className={sectionTitle}>Destination</div>
-
-          {/* Move to root */}
-          <button
-            className={menuItem}
-            onClick={async () => {
-              await movePage(selectedWs, moveSource.pageId, null);
-              setMoveOpen(false);
-            }}
-          >
-            ⬆ Move to Main
-          </button>
-
-          {/* Move under another root page (exclude itself and its descendants) */}
-          <div className="max-h-60 overflow-auto py-1">
-            {root.length === 0 ? (
-              <div className="px-3 py-1 text-sm text-gray-600">No top-level pages.</div>
-            ) : (
-              (() => {
-                const forbidden = collectDescendants(moveSource.pageId, childMap);
-                forbidden.add(moveSource.pageId); // cannot move into itself
-                const candidates = root.filter((p) => !forbidden.has(p.id));
-                return candidates.length === 0 ? (
-                  <div className="px-3 py-1 text-sm text-gray-600">No valid destinations.</div>
-                ) : (
-                  candidates.map((p) => (
-                    <button
-                      key={p.id}
-                      className={menuItem}
-                      onClick={async () => {
-                        await movePage(selectedWs, moveSource.pageId, p.id);
-                        setMoveOpen(false);
-                      }}
-                    >
-                      <IconPage />
-                      <span className="truncate">Under “{p.title}”</span>
-                    </button>
-                  ))
-                );
-              })()
-            )}
-          </div>
-        </div>
+          role="separator"
+          aria-orientation="vertical"
+          title="Resize"
+          onMouseDown={() => {
+            isDraggingResizer.current = true;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+          }}
+          className="absolute right-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-black/10 active:bg-black/20"
+        />
       )}
     </aside>
   );
 }
+
+// ---------- User Profile Menu ----------
+function UserProfileMenu({
+  currentWsId,
+  goSettings,
+  goPermissions,
+  userName,
+  photoURL,
+}: {
+  currentWsId?: string;
+  goSettings: () => void;
+  goPermissions: () => void;
+  userName: string;
+  photoURL?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const avatar = photoURL ? (
+    <img src={photoURL} alt="Avatar" className="w-7 h-7 rounded-md object-cover" />
+  ) : (
+    <div aria-hidden className="w-7 h-7 rounded-md border border-neutral-300 grid place-items-center">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <circle cx="12" cy="8" r="3" />
+        <path d="M4 20c1.5-4 14.5-4 16 0" />
+      </svg>
+    </div>
+  );
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        className="inline-flex items-center gap-2 rounded-md px-2 py-1 hover:bg-neutral-100"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        {avatar}
+        {!!currentWsId && <span className="text-sm">{userName}</span>}
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5"
+          className={`transition-transform ${open ? 'rotate-180' : ''}`}>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 top-9 z-20 w-56 bg-white border border-neutral-200 rounded-lg shadow-md p-1 font-sans text-[13px]"
+        >
+          <div className="px-2 py-1 text-[11px] uppercase tracking-wide opacity-60">Account</div>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md hover:bg-neutral-100"
+            onClick={() => { setOpen(false); goSettings(); }}
+            disabled={!currentWsId}
+            title={currentWsId ? 'Open Settings' : 'Open a workspace first'}
+          >
+            Account Settings
+          </button>
+
+          <div className="px-2 pt-2 pb-1 text-[11px] uppercase tracking-wide opacity-60">Collaboration</div>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md hover:bg-neutral-100"
+            onClick={() => { setOpen(false); goPermissions(); }}
+            disabled={!currentWsId}
+            title={currentWsId ? 'Open Permissions' : 'Open a workspace first'}
+          >
+            Invite Collaborators
+          </button>
+
+          <div className="h-px my-1 bg-neutral-200" />
+
+          <button
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md hover:bg-neutral-100 text-red-600"
+            onClick={() => auth.signOut()}
+          >
+            Sign Out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

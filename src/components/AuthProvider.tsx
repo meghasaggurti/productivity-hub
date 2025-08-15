@@ -1,67 +1,120 @@
-// src/components/AuthProvider.tsx
-"use client"; // Specifies that this file is intended to run on the client-side in Next.js
+'use client';
 
-/**
- * AuthProvider:
- * - Subscribes to Firebase Auth state
- * - Exposes { user, loading, logout } via React context
- *
- * This component provides authentication-related context for the application:
- * - It listens to Firebase's authentication state changes and updates the `user` and `loading` states accordingly.
- * - It exposes authentication details (`user`, `loading`, and `logout`) to the rest of the app via React's context API.
- * - It includes a `logout` function that triggers Firebase's sign-out process.
- */
-import { createContext, useContext, useEffect, useState } from "react"; // Import necessary React hooks and context functions
-import { auth } from "@/lib/firebaseAuthClient"; // Firebase authentication instance for managing user auth
-import { onAuthStateChanged, signOut, User } from "firebase/auth"; // Firebase auth methods: listen to state changes and sign out
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import {
+  GoogleAuthProvider,
+  User,
+  onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut,
+} from 'firebase/auth';
+import { auth } from '@/lib/firebaseDb';
+import { ensureMembershipForUser } from '@/lib/ensureMembership';
+import { upsertOwnProfile } from '@/lib/upsertOwnProfile';
 
-// Define the shape of the AuthContext (user, loading, logout)
-type AuthContextType = {
-  user: User | null; // Current authenticated user or null if not authenticated
-  loading: boolean; // Loading state while checking authentication status
-  logout: () => Promise<void>; // Logout function to sign the user out
+type AuthCtx = {
+  user: User | null;
+  loading: boolean;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
 };
 
-// Create the AuthContext with a default value
-const AuthContext = createContext<AuthContextType>({
-  user: null, // Initially, no user is logged in
-  loading: true, // Initially, loading is true while checking auth state
-  logout: async () => {}, // Default logout function does nothing
+const Ctx = createContext<AuthCtx>({
+  user: null,
+  loading: true,
+  login: async () => {},
+  logout: async () => {},
 });
 
-// AuthProvider component to provide authentication context to the rest of the app
+export const useAuth = () => useContext(Ctx);
+
+const isIOS = () =>
+  typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+const isSafari = () =>
+  typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null); // State to store the current user
-  const [loading, setLoading] = useState(true); // State to track loading status
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const inflight = useRef<Promise<void> | null>(null);
 
+  // Persist sessions in the browser
   useEffect(() => {
-    // Set up an authentication state listener
-    const unsub = onAuthStateChanged(auth, (current) => {
-      setUser(current ?? null); // Update user state if there's a logged-in user or set null if no user is logged in
-      setLoading(false); // Once the auth state is determined, set loading to false
+    setPersistence(auth, browserLocalPersistence).catch(console.error);
+  }, []);
+
+  // Swallow redirect result errors quietly (e.g., user closed the sheet)
+  useEffect(() => {
+    getRedirectResult(auth).catch(() => {});
+  }, []);
+
+  // Auth state
+  useEffect(() => {
+    const off = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      setLoading(false);
+      if (u?.uid) {
+        try {
+          // Ensure profile doc + membership mirror are in place on every login
+          await Promise.all([upsertOwnProfile(), ensureMembershipForUser(u.uid)]);
+        } catch {
+          // no-op
+        }
+      }
     });
+    return () => off();
+  }, []);
 
-    // Clean up the listener on component unmount
-    return () => unsub();
-  }, []); // Empty dependency array ensures this runs only once when the component mounts
+  const login = async () => {
+    if (inflight.current) return inflight.current;
 
-  // Logout function to sign the user out
-  const logout = async () => {
-    await signOut(auth); // Trigger Firebase sign-out
+    const provider = new GoogleAuthProvider();
+    const useRedirect = isIOS() || isSafari();
+
+    const run = async () => {
+      try {
+        setLoading(true);
+        if (useRedirect) {
+          await signInWithRedirect(auth, provider);
+          return; // flow continues after redirect
+        }
+        await signInWithPopup(auth, provider);
+        if (auth.currentUser?.uid) {
+          await Promise.all([upsertOwnProfile(), ensureMembershipForUser(auth.currentUser.uid)]).catch(
+            () => {}
+          );
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    inflight.current = run();
+    try {
+      await inflight.current;
+    } finally {
+      inflight.current = null;
+    }
   };
 
-  return (
-    // Provide the auth context value to the children components
-    <AuthContext.Provider value={{ user, loading, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const logout = async () => {
+    inflight.current = null;
+    await signOut(auth);
+  };
+
+  return <Ctx.Provider value={{ user, loading, login, logout }}>{children}</Ctx.Provider>;
 }
 
-// Custom hook to access the authentication context data
-export function useAuth() {
-  return useContext(AuthContext); // Access the auth context using useContext
-}
+
+
+
+
+
+
 
 
 

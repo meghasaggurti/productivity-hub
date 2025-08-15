@@ -1,70 +1,105 @@
-// src/lib/bootstrap.ts
-"use client"; // Specifies that this file is intended to run on the client-side in Next.js
+// ---------- src/lib/bootstrap.ts ----------
+'use client';
+
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  writeBatch,
+  doc,
+  addDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
+import { db } from '@/lib/firebaseDb';
+
+/** Find a non-deleted page or create "Home" if none, then return the pageId. */
+async function ensureHomeIn(wsId: string): Promise<string> {
+  // Prefer an existing live page (no orderBy to avoid composite indexes)
+  const pagesSnap = await getDocs(collection(db, 'workspaces', wsId, 'pages'));
+  const pages = pagesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+  const live = pages.filter((p) => p.isDeleted !== true);
+  const home = live.find((p) => p.title === 'Home');
+  if (home) return home.id;
+
+  if (live[0]) return live[0].id;
+
+  // No live pages → create "Home"
+  const pageRef = await addDoc(collection(db, 'workspaces', wsId, 'pages'), {
+    title: 'Home',
+    parentId: null,
+    order: 0,
+    isDeleted: false,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return pageRef.id;
+}
 
 /**
- * Ensures the signed-in user has at least one workspace ("Hub")
- * and at least one page ("Home"). Returns their IDs.
- * 
- * This function checks if the user has an existing workspace and page. If not, it creates a default workspace ("Hub") and a default page ("Home").
+ * Ensure the user has at least one active workspace and a "Home" page.
+ * Returns { wsId, pageId } for navigation.
+ * - Finds by membership (memberIds array-contains uid)
+ * - If none, creates a "Hub" workspace and a "Home" page
+ *
+ * NOTE: Create payload matches your security rules:
+ *   { ownerId: uid, memberIds: [uid], isDeleted: false, createdAt, updatedAt, name }
  */
-import { db } from "./firebaseDb"; // Import Firebase Firestore database instance
-import { addDoc, collection, getDocs, limit, query, where } from "firebase/firestore"; // Import Firestore functions for querying and adding documents
+export async function ensureHubAndHome(
+  uid: string
+): Promise<{ wsId: string; pageId: string }> {
+  // 1) Find ALL workspaces where the user is a member (avoid composite index by not filtering isDeleted here)
+  const wsQ = query(collection(db, 'workspaces'), where('memberIds', 'array-contains', uid));
+  const wsSnap = await getDocs(wsQ);
+  const all = wsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+  const active = all.filter((w) => w.isDeleted !== true);
 
-// Function to ensure that a signed-in user has a workspace and page
-export async function ensureInitialWorkspace(
-  uid: string // The user's unique ID
-): Promise<{ workspaceId: string; pageId: string }> {
-  // 1) Look for any workspace where this user is a member
-  const wsQ = query(
-    collection(db, "workspaces"), // Query the 'workspaces' collection
-    where("memberIds", "array-contains", uid), // Filter where the user is a member of the workspace
-    limit(1) // Limit the query to return only 1 workspace
-  );
-  const wsSnap = await getDocs(wsQ); // Execute the query and get the snapshot
-
-  if (!wsSnap.empty) { // If there's at least one workspace where the user is a member
-    const wsDoc = wsSnap.docs[0]; // Get the first workspace document
-
-    // 2) Look for a page in that workspace
-    const pagesQ = query(collection(db, "workspaces", wsDoc.id, "pages"), limit(1)); // Query for pages in that workspace
-    const pagesSnap = await getDocs(pagesQ); // Execute the query and get the snapshot
-
-    if (!pagesSnap.empty) { // If there’s at least one page in the workspace
-      return { workspaceId: wsDoc.id, pageId: pagesSnap.docs[0].id }; // Return the workspace and page IDs
-    }
-
-    // 3) Create initial page ("Home") in the workspace if no pages exist
-    const pageRef = await addDoc(collection(db, "workspaces", wsDoc.id, "pages"), {
-      title: "Home", // Default page title
-      parentId: null, // Parent ID is null for top-level pages
-      order: 0, // Set the order for the page (0)
-      createdAt: Date.now(), // Set the creation timestamp
-      updatedAt: Date.now(), // Set the update timestamp
-    });
-    return { workspaceId: wsDoc.id, pageId: pageRef.id }; // Return workspace and newly created page IDs
+  if (active.length > 0) {
+    // Pick the one with the smallest 'order' (or created first if not set)
+    active.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const wsId = active[0].id;
+    const pageId = await ensureHomeIn(wsId);
+    return { wsId, pageId };
   }
 
-  // 4) If no workspace exists, create a default "Hub" workspace for this user
-  const wsRef = await addDoc(collection(db, "workspaces"), {
-    name: "Hub", // Default workspace name
-    ownerId: uid, // Set the workspace owner to the current user
-    members: { [uid]: "owner" }, // Assign the user as the owner in the members field
-    memberIds: [uid], // Set the memberIds array to contain the current user's ID
-    theme: { primary: "#3b82f6" }, // Set a default theme color for the workspace
-    createdAt: Date.now(), // Set the creation timestamp
-    updatedAt: Date.now(), // Set the update timestamp
-  });
+  // 2) None exist → create a new "Hub" and its "Home" page in one batch
+  const now = serverTimestamp();
+  const wsRef = doc(collection(db, 'workspaces'));
+  const homeRef = doc(collection(db, 'workspaces', wsRef.id, 'pages'));
 
-  // 5) Create the first page ("Home") in the new workspace
-  const pageRef = await addDoc(collection(db, "workspaces", wsRef.id, "pages"), {
-    title: "Home", // Default page title
-    parentId: null, // Parent ID is null for top-level pages
-    order: 0, // Set the order for the page (0)
-    createdAt: Date.now(), // Set the creation timestamp
-    updatedAt: Date.now(), // Set the update timestamp
+  const b = writeBatch(db);
+  b.set(wsRef, {
+    name: 'Hub',
+    ownerId: uid,
+    memberIds: [uid],
+    isDeleted: false,
+    createdAt: now,
+    updatedAt: now,
   });
+  b.set(homeRef, {
+    title: 'Home',
+    parentId: null,
+    order: 0,
+    isDeleted: false,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await b.commit();
 
-  return { workspaceId: wsRef.id, pageId: pageRef.id }; // Return IDs of the newly created workspace and page
+  return { wsId: wsRef.id, pageId: homeRef.id };
 }
+
+/**
+ * Back-compat alias for older code that imported ensureInitialWorkspace.
+ * Returns { workspaceId, pageId } but uses ensureHubAndHome under the hood.
+ */
+export async function ensureInitialWorkspace(
+  uid: string
+): Promise<{ workspaceId: string; pageId: string }> {
+  const { wsId, pageId } = await ensureHubAndHome(uid);
+  return { workspaceId: wsId, pageId };
+}
+
 
 

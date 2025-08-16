@@ -1,22 +1,18 @@
-// next.config.ts
 import type { NextConfig } from "next";
 
 /**
- * TEMPORARY: Unblock Vercel deploys while we iterate fast.
- * - ignoreDuringBuilds: prevents ESLint errors from failing `next build`
- * - ignoreBuildErrors: prevents TS errors from failing `next build`
- * We’ll turn these off once we refactor the `any` types and clean debug pages.
+ * TEMPORARY: Unblock Vercel builds while we iterate quickly.
+ * We'll re-enable strict settings after we clean types in the core code.
  */
 const nextConfig: NextConfig = {
   eslint: {
+    // ⬇️ Prevent ESLint errors from failing `next build`
     ignoreDuringBuilds: true,
   },
   typescript: {
+    // ⬇️ Prevent TS type errors from failing `next build`
     ignoreBuildErrors: true,
   },
-  // (Optional) If you’re using images later, set remotePatterns here
-  // images: { remotePatterns: [ { protocol: 'https', hostname: '**' } ] },
 };
 
 export default nextConfig;
-

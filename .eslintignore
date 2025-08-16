@@ -1,0 +1,7 @@
+# Ignore build artifacts
+.next
+node_modules
+
+# Ignore dev/debug sandboxes
+src/app/dev
+src/app/debug

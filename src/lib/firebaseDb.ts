@@ -5,6 +5,8 @@
  * - Never runs during SSR/prerender (checks typeof window)
  * - Works even when env values are placeholders (returns ready=false)
  * - Your components should gate on `ready` before using db/auth
+ * - For backward compatibility, this file now also exports { db, auth, googleProvider, ready }
+ *   so existing imports like `import { db } from "@/lib/firebaseDb"` keep working.
  */
 
 import type { FirebaseApp } from "firebase/app";
@@ -23,7 +25,8 @@ function cfg() {
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
     projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "",
     storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "",
-    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "",
+    messagingSenderId:
+      process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "",
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
   };
 }
@@ -49,7 +52,9 @@ export function getClientFirebase() {
   const conf = cfg();
   if (!envLooksValid(conf)) {
     if (process.env.NODE_ENV !== "production") {
-      console.warn("[firebaseDb] Missing/placeholder Firebase env. Set NEXT_PUBLIC_FIREBASE_* in Vercel/Local.");
+      console.warn(
+        "[firebaseDb] Missing/placeholder Firebase env. Set NEXT_PUBLIC_FIREBASE_* in Vercel/Local."
+      );
     }
     return {
       app: null as unknown as FirebaseApp,
@@ -77,3 +82,50 @@ export function getClientFirebase() {
     reason: "ok" as const,
   };
 }
+
+/* -------------------------------------------------------------------------------------------------
+ * Compatibility shim exports
+ * Keep legacy imports working:
+ *   import { db, auth, googleProvider, ready } from "@/lib/firebaseDb";
+ * These proxies defer to the real instances and throw helpful errors if not ready.
+ * ------------------------------------------------------------------------------------------------- */
+
+const __bag = getClientFirebase();
+
+function __ensureReady(kind: "Firestore" | "Auth" | "GoogleProvider") {
+  if (!__bag.ready) {
+    throw new Error(
+      `[firebaseDb] ${kind} is not ready. Missing NEXT_PUBLIC_FIREBASE_* envs or called during SSR.`
+    );
+  }
+}
+
+// Proxy for Firestore that throws if accessed before ready
+export const db: Firestore = new Proxy({} as Firestore, {
+  get(_t, prop) {
+    __ensureReady("Firestore");
+    return (__bag.db as any)[prop];
+  },
+}) as Firestore;
+
+// Proxy for Auth that throws if accessed before ready
+export const auth: Auth = new Proxy({} as Auth, {
+  get(_t, prop) {
+    __ensureReady("Auth");
+    return (__bag.auth as any)[prop];
+  },
+}) as Auth;
+
+// Proxy for GoogleAuthProvider that throws if accessed before ready
+export const googleProvider: GoogleAuthProvider = new Proxy(
+  {} as GoogleAuthProvider,
+  {
+    get(_t, prop) {
+      __ensureReady("GoogleProvider");
+      return (__bag.googleProvider as any)[prop];
+    },
+  }
+) as GoogleAuthProvider;
+
+// Handy flag for UI branching
+export const ready: boolean = __bag.ready;

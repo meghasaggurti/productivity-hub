@@ -15,6 +15,7 @@ export const metadata: Metadata = {
   description: "Your customizable hub for work, school, and life.",
 };
 
+// src/app/layout.tsx
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={spectral.variable}>

@@ -34,7 +34,7 @@ function envLooksValid(c: ReturnType<typeof cfg>) {
 
 /** Use ONLY inside client components */
 export function getClientFirebase() {
-  // ✅ do not initialize Web SDK on the server (SSR/prerender)
+  // ✅ Do not initialize Web SDK on the server (SSR/prerender)
   if (typeof window === "undefined") {
     return {
       app: null as unknown as FirebaseApp,
@@ -42,7 +42,7 @@ export function getClientFirebase() {
       auth: null as unknown as Auth,
       googleProvider: null as unknown as GoogleAuthProvider,
       ready: false,
-      reason: "server",
+      reason: "server" as const,
     };
   }
 
@@ -57,7 +57,7 @@ export function getClientFirebase() {
       auth: null as unknown as Auth,
       googleProvider: null as unknown as GoogleAuthProvider,
       ready: false,
-      reason: "env",
+      reason: "env" as const,
     };
   }
 
@@ -68,6 +68,12 @@ export function getClientFirebase() {
 
   if (process.env.NODE_ENV === "development") setLogLevel("debug");
 
-  return { app: _app, db: _db, auth: _auth, googleProvider: _googleProvider, ready: true, reason: "ok" };
+  return {
+    app: _app,
+    db: _db,
+    auth: _auth,
+    googleProvider: _googleProvider,
+    ready: true,
+    reason: "ok" as const,
+  };
 }
-

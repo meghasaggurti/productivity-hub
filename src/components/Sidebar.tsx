@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   collection, onSnapshot, query, where, updateDoc, doc, writeBatch, arrayRemove,
 } from 'firebase/firestore';
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 import type { Workspace } from '@/types/app';
 import WorkspaceTree from './WorkspaceTree';
 import { createWorkspaceWithHome, softDeleteWorkspace, reorderWorkspaces as reorderWorkspacesOp } from '@/lib/ops';

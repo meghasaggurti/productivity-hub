@@ -1,6 +1,7 @@
-'use client';
+// src/components/AuthProvider.tsx
+"use client";
 
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   GoogleAuthProvider,
   User,
@@ -11,10 +12,12 @@ import {
   signInWithRedirect,
   getRedirectResult,
   signOut,
-} from 'firebase/auth';
-import { db, auth } from '@/lib/firebaseDb';
-import { ensureMembershipForUser } from '@/lib/ensureMembership';
-import { upsertOwnProfile } from '@/lib/upsertOwnProfile';
+} from "firebase/auth";
+
+// ✅ Use the client shim, not firebaseDb directly
+import { auth, ready } from "@/lib/clientOnlyDb";
+import { ensureMembershipForUser } from "@/lib/ensureMembership";
+import { upsertOwnProfile } from "@/lib/upsertOwnProfile";
 
 type AuthCtx = {
   user: User | null;
@@ -33,36 +36,41 @@ const Ctx = createContext<AuthCtx>({
 export const useAuth = () => useContext(Ctx);
 
 const isIOS = () =>
-  typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+  typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent);
 const isSafari = () =>
-  typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  typeof navigator !== "undefined" && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const inflight = useRef<Promise<void> | null>(null);
 
-  // Persist sessions in the browser
+  // Only touch `auth` when Firebase is actually ready in the browser.
   useEffect(() => {
-    setPersistence(auth, browserLocalPersistence).catch(console.error);
+    if (!ready) return;
+    setPersistence(auth, browserLocalPersistence).catch(() => {});
   }, []);
 
-  // Swallow redirect result errors quietly (e.g., user closed the sheet)
   useEffect(() => {
+    if (!ready) return;
+    // swallow benign errors (e.g., user closed the Google window)
     getRedirectResult(auth).catch(() => {});
   }, []);
 
-  // Auth state
   useEffect(() => {
+    if (!ready) {
+      // we’re in SSR or envs not configured — expose non-loading UI instead of throwing
+      setLoading(false);
+      return;
+    }
     const off = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       setLoading(false);
       if (u?.uid) {
         try {
-          // Ensure profile doc + membership mirror are in place on every login
           await Promise.all([upsertOwnProfile(), ensureMembershipForUser(u.uid)]);
         } catch {
-          // no-op
+          /* no-op */
         }
       }
     });
@@ -71,7 +79,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async () => {
     if (inflight.current) return inflight.current;
-
     const provider = new GoogleAuthProvider();
     const useRedirect = isIOS() || isSafari();
 
@@ -79,14 +86,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         setLoading(true);
         if (useRedirect) {
+          if (!ready) throw new Error("Auth not ready.");
           await signInWithRedirect(auth, provider);
-          return; // flow continues after redirect
+          return;
         }
+        if (!ready) throw new Error("Auth not ready.");
         await signInWithPopup(auth, provider);
         if (auth.currentUser?.uid) {
-          await Promise.all([upsertOwnProfile(), ensureMembershipForUser(auth.currentUser.uid)]).catch(
-            () => {}
-          );
+          await Promise.all([upsertOwnProfile(), ensureMembershipForUser(auth.currentUser.uid)]).catch(() => {});
         }
       } finally {
         setLoading(false);
@@ -103,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     inflight.current = null;
-    await signOut(auth);
+    if (ready) await signOut(auth);
   };
 
   return <Ctx.Provider value={{ user, loading, login, logout }}>{children}</Ctx.Provider>;

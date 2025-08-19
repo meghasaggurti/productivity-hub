@@ -16,7 +16,7 @@ import {
   writeBatch,
   deleteField, // needed for removing roles.{uid}
 } from 'firebase/firestore';
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 
 /** ---------- Helpers ---------- */
 

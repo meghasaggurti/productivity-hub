@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 import { deactivateAccount } from '@/lib/ops';
 
 type Props = { wsId: string; onClose: () => void };

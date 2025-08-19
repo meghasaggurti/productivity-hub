@@ -11,7 +11,7 @@ import {
   addDoc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 
 /** Find a non-deleted page or create "Home" if none, then return the pageId. */
 async function ensureHomeIn(wsId: string): Promise<string> {

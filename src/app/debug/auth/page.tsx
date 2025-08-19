@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 import { onAuthStateChanged } from "firebase/auth";
 import { ensureMembershipForUser } from "@/lib/ensureMembership";
 

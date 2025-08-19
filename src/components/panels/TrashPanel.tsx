@@ -5,7 +5,7 @@ import {
   collection,
   onSnapshot,
 } from 'firebase/firestore';
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 import { hardDeletePage, restorePage } from '@/lib/ops';
 
 type Props = { wsId: string; onClose: () => void };

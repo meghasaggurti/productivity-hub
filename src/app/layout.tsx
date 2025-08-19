@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Spectral } from "next/font/google";
+import { spectral } from "./font";
 import { AuthProvider } from "@/components/AuthProvider";
 import ThemeListener from "@/components/ThemeListener";
 
@@ -17,11 +17,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="antialiased">
-        <ThemeListener />
-        <AuthProvider>{children}</AuthProvider>
-      </body>
+    <html lang="en" className={spectral.variable}>
+      <body>{children}</body>
     </html>
   );
 }

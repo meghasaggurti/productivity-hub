@@ -1,6 +1,4 @@
 // src/lib/firebaseDb.ts
-"use client";
-
 import { initializeApp, getApp, getApps, type FirebaseApp } from "firebase/app";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getAuth, type Auth, GoogleAuthProvider } from "firebase/auth";
@@ -8,7 +6,7 @@ import { getAuth, type Auth, GoogleAuthProvider } from "firebase/auth";
 export type FirebaseBag = {
   ready: boolean;
   app: FirebaseApp | null;
-  db: Firestore; // when not ready, these are placeholders (casted) and only used via clientOnlyDb guards
+  db: Firestore;
   auth: Auth;
   googleProvider: GoogleAuthProvider;
 };
@@ -22,13 +20,16 @@ function hasRequiredEnvs() {
   );
 }
 
-export default function getClientFirebase(): FirebaseBag {
-  // Block during SSR or if envs are missing
+/**
+ * Safe to import on the server. On server or when envs are missing,
+ * it returns `ready:false` and typed nulls (via casts), so callers
+ * must gate real usage with runtime checks.
+ */
+function _getClientFirebase(): FirebaseBag {
   const isBrowser = typeof window !== "undefined";
   const envOK = hasRequiredEnvs();
 
   if (!isBrowser || !envOK) {
-    // return a stable shape; real access will be gated by clientOnlyDb
     return {
       ready: false,
       app: null,
@@ -54,3 +55,8 @@ export default function getClientFirebase(): FirebaseBag {
 
   return { ready: true, app, db, auth, googleProvider };
 }
+
+// Export both default and named so imports work either way.
+const getClientFirebase = _getClientFirebase;
+export default getClientFirebase;
+export { getClientFirebase };

@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 import type { Page } from '@/types/app';
 
 /** Load live pages (not deleted) for a workspace. */

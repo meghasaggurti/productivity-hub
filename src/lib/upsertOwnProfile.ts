@@ -1,6 +1,6 @@
 'use client';
 
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 import { doc, setDoc } from 'firebase/firestore';
 
 export async function upsertOwnProfile() {

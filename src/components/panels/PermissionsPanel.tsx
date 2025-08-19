@@ -7,7 +7,7 @@ import {
   onSnapshot,
   updateDoc,
 } from 'firebase/firestore';
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 import { addMembers } from '@/lib/ops';
 
 type Props = { wsId: string; onClose: () => void };

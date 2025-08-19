@@ -2,7 +2,7 @@
 "use client";
 
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 
 export async function addWorkspaceInvite(params: {
   workspaceId: string;

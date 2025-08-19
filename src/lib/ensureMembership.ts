@@ -1,7 +1,7 @@
 'use client';
 
 // src/lib/ensureMembership.ts
-import { db, auth } from '@/lib/clientOnlyDb';
+import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
 import {
   collection, doc, getDoc, getDocs, query, where, setDoc,
 } from 'firebase/firestore';

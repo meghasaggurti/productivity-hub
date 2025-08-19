@@ -1,12 +1,8 @@
-"use client";
-
 /**
- * Client-only Firebase initialization (safe for Vercel builds)
- * - Never runs during SSR/prerender (checks typeof window)
- * - Works even when env values are placeholders (returns ready=false)
- * - Your components should gate on `ready` before using db/auth
- * - For backward compatibility, this file now also exports { db, auth, googleProvider, ready }
- *   so existing imports like `import { db } from "@/lib/firebaseDb"` keep working.
+ * Server-safe Firebase client bootstrap
+ * - No "use client" so server files can import it without build errors
+ * - Does NOT initialize on the server; proxies throw if used during SSR
+ * - Keeps legacy named exports: { db, auth, googleProvider, ready }
  */
 
 import type { FirebaseApp } from "firebase/app";
@@ -30,14 +26,12 @@ function cfg() {
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
   };
 }
-
 function envLooksValid(c: ReturnType<typeof cfg>) {
   return Boolean(c.apiKey && c.projectId && c.appId);
 }
 
-/** Use ONLY inside client components */
+/** Call from client components/hooks only */
 export function getClientFirebase() {
-  // ✅ Do not initialize Web SDK on the server (SSR/prerender)
   if (typeof window === "undefined") {
     return {
       app: null as unknown as FirebaseApp,
@@ -53,7 +47,7 @@ export function getClientFirebase() {
   if (!envLooksValid(conf)) {
     if (process.env.NODE_ENV !== "production") {
       console.warn(
-        "[firebaseDb] Missing/placeholder Firebase env. Set NEXT_PUBLIC_FIREBASE_* in Vercel/Local."
+        "[firebaseDb] Missing NEXT_PUBLIC_FIREBASE_* envs. Skipping init."
       );
     }
     return {
@@ -83,49 +77,51 @@ export function getClientFirebase() {
   };
 }
 
-/* -------------------------------------------------------------------------------------------------
- * Compatibility shim exports
- * Keep legacy imports working:
- *   import { db, auth, googleProvider, ready } from "@/lib/firebaseDb";
- * These proxies defer to the real instances and throw helpful errors if not ready.
- * ------------------------------------------------------------------------------------------------- */
+/* --------------------------------------------------------------------------------
+ * Compatibility named exports that are safe to import on the server.
+ * Accessing them during SSR will throw with a clear message.
+ * -------------------------------------------------------------------------------- */
 
-const __bag = getClientFirebase();
-
-function __ensureReady(kind: "Firestore" | "Auth" | "GoogleProvider") {
-  if (!__bag.ready) {
+function ensureClient(kind: "Firestore" | "Auth" | "GoogleProvider") {
+  if (typeof window === "undefined") {
+    throw new Error(`[firebaseDb] ${kind} cannot be used during SSR.`);
+  }
+  const bag = getClientFirebase();
+  if (!bag.ready) {
     throw new Error(
-      `[firebaseDb] ${kind} is not ready. Missing NEXT_PUBLIC_FIREBASE_* envs or called during SSR.`
+      `[firebaseDb] ${kind} not ready. Check NEXT_PUBLIC_FIREBASE_* envs.`
     );
   }
+  return bag;
 }
 
-// Proxy for Firestore that throws if accessed before ready
 export const db: Firestore = new Proxy({} as Firestore, {
   get(_t, prop) {
-    __ensureReady("Firestore");
-    return (__bag.db as any)[prop];
+    const bag = ensureClient("Firestore");
+    // @ts-expect-error dynamic
+    return bag.db[prop];
   },
 }) as Firestore;
 
-// Proxy for Auth that throws if accessed before ready
 export const auth: Auth = new Proxy({} as Auth, {
   get(_t, prop) {
-    __ensureReady("Auth");
-    return (__bag.auth as any)[prop];
+    const bag = ensureClient("Auth");
+    // @ts-expect-error dynamic
+    return bag.auth[prop];
   },
 }) as Auth;
 
-// Proxy for GoogleAuthProvider that throws if accessed before ready
 export const googleProvider: GoogleAuthProvider = new Proxy(
   {} as GoogleAuthProvider,
   {
     get(_t, prop) {
-      __ensureReady("GoogleProvider");
-      return (__bag.googleProvider as any)[prop];
+      const bag = ensureClient("GoogleProvider");
+      // @ts-expect-error dynamic
+      return bag.googleProvider[prop];
     },
   }
 ) as GoogleAuthProvider;
 
-// Handy flag for UI branching
-export const ready: boolean = __bag.ready;
+// lightweight flag; true only on the client with valid env
+export const ready: boolean =
+  typeof window !== "undefined" && envLooksValid(cfg());

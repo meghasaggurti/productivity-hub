@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { ensureHubAndHome } from "@/lib/bootstrap";
-import { getClientFirebase } from "@/lib/firebaseDb";
+import  getClientFirebase from "@/lib/firebaseDb";
 
 /**
  * HomePage

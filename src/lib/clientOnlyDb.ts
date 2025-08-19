@@ -80,7 +80,7 @@ export function getGoogleProviderOrThrow(): GoogleAuthProvider {
 
 /**
  * Convenience exports matching your old imports:
- *   import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
+ *   import { db, auth, googleProvider } from "@/lib/firebaseDb";
  *
  * These are *typed* as real SDK instances and only throw if actually used before ready.
  */

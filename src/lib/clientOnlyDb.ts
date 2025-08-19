@@ -1,3 +1,4 @@
+// src/lib/clientOnlyDb.ts
 "use client";
 
 /**
@@ -10,87 +11,85 @@
  *
  * How it works:
  * - `getClientFirebase()` ALWAYS returns `db`/`auth` typed as real instances (even when not ready,
- *   they are `null` cast to those types). We add runtime guards in the getters below to throw
- *   with a helpful error if someone tries to use them when `ready === false`.
+ *   they are `null` cast to those types). We add runtime guards below to throw with a helpful error
+ *   if someone tries to use them when `ready === false`.
  */
 
-import { getClientFirebase } from "@/lib/firebaseDb";
+import { getClientFirebase, type FirebaseBag } from "@/lib/firebaseDb";
 import type { Firestore } from "firebase/firestore";
 import type { Auth, GoogleAuthProvider } from "firebase/auth";
 
-// Use the exact return type so fields are non-optional
-type FirebaseBag = ReturnType<typeof getClientFirebase>;
-
 let memo: FirebaseBag | undefined;
 
+/** Ensure we only initialize once per client */
 function ensureMemo(): FirebaseBag {
-  if (!memo) {
-    memo = getClientFirebase();
-  }
+  if (!memo) memo = getClientFirebase();
   return memo!;
 }
 
-/** Returns `db` or throws with a clear message (and narrows the type at call sites). */
-export function getDbOrThrow(): Firestore {
-  const bag = ensureMemo();
-  if (!bag.ready) {
-    throw new Error(
-      "[clientOnlyDb] Firestore is not ready. Missing NEXT_PUBLIC_FIREBASE_* envs or called during SSR."
-    );
-  }
-  return bag.db; // typed as Firestore (not undefined)
+/** Throws a clear message when someone uses a resource before it's ready */
+function notReadyMsg(name: string, reason: FirebaseBag["reason"]) {
+  const hint =
+    reason === "ssr"
+      ? "called during SSR"
+      : reason === "missing-env"
+      ? "missing NEXT_PUBLIC_FIREBASE_* envs"
+      : "unknown";
+  return `[clientOnlyDb] ${name} is not ready (${hint}).`;
 }
 
-/** Returns `auth` or throws with a clear message. */
+/** Generic proxy creator that defers the throw until first actual use */
+function proxyOrThrow<T extends object>(name: string, getter: () => T): T {
+  return new Proxy({} as T, {
+    get(_t, prop) {
+      const bag = ensureMemo();
+      if (!bag.ready) {
+        throw new Error(notReadyMsg(name, bag.reason));
+      }
+      return (getter() as any)[prop];
+    },
+    apply(_t, thisArg, argArray) {
+      const bag = ensureMemo();
+      if (!bag.ready) {
+        throw new Error(notReadyMsg(name, bag.reason));
+      }
+      return (getter() as any).apply(thisArg, argArray);
+    },
+  }) as T;
+}
+
+/** Safe getters (throw if not ready) */
+export function getDbOrThrow(): Firestore {
+  const bag = ensureMemo();
+  if (!bag.ready) throw new Error(notReadyMsg("Firestore", bag.reason));
+  return bag.db;
+}
+
 export function getAuthOrThrow(): Auth {
   const bag = ensureMemo();
-  if (!bag.ready) {
-    throw new Error(
-      "[clientOnlyDb] Auth is not ready. Missing NEXT_PUBLIC_FIREBASE_* envs or called during SSR."
-    );
-  }
+  if (!bag.ready) throw new Error(notReadyMsg("Auth", bag.reason));
   return bag.auth;
 }
 
-/** Returns the Google provider or throws with a clear message. */
 export function getGoogleProviderOrThrow(): GoogleAuthProvider {
   const bag = ensureMemo();
-  if (!bag.ready) {
-    throw new Error(
-      "[clientOnlyDb] Google provider not ready (envs missing or SSR)."
-    );
-  }
+  if (!bag.ready)
+    throw new Error(notReadyMsg("GoogleAuthProvider", bag.reason));
   return bag.googleProvider;
 }
 
 /**
- * Convenience exports:
- * These are values (not functions) so you can keep existing imports like:
- *   import { db } from "@/lib/clientOnlyDb";
+ * Convenience exports matching your old imports:
+ *   import { db, auth, googleProvider } from "@/lib/clientOnlyDb";
  *
- * They’ll be *typed* as Firestore/Auth/GoogleAuthProvider (not optional),
- * and will throw at runtime if actually used before `ready` is true.
+ * These are *typed* as real SDK instances and only throw if actually used before ready.
  */
-const _bag = ensureMemo();
+export const db: Firestore = proxyOrThrow<Firestore>("Firestore", () => getDbOrThrow());
+export const auth: Auth = proxyOrThrow<Auth>("Auth", () => getAuthOrThrow());
+export const googleProvider: GoogleAuthProvider = proxyOrThrow<GoogleAuthProvider>(
+  "GoogleAuthProvider",
+  () => getGoogleProviderOrThrow()
+);
 
-// Getter-style proxies: defer the "throw if not ready" until the first actual use
-export const db: Firestore = new Proxy({} as Firestore, {
-  get(_t, prop) {
-    return (getDbOrThrow() as any)[prop];
-  },
-}) as Firestore;
-
-export const auth: Auth = new Proxy({} as Auth, {
-  get(_t, prop) {
-    return (getAuthOrThrow() as any)[prop];
-  },
-}) as Auth;
-
-export const googleProvider: GoogleAuthProvider = new Proxy({} as GoogleAuthProvider, {
-  get(_t, prop) {
-    return (getGoogleProviderOrThrow() as any)[prop];
-  },
-}) as GoogleAuthProvider;
-
-// Keep an explicit ready flag if you want to branch on it in UI
-export const ready: boolean = _bag.ready;
+/** Optional ready flag for UI branching (never throws) */
+export const ready: boolean = ensureMemo().ready;

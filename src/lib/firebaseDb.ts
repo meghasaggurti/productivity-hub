@@ -1,50 +1,92 @@
-'use client';
+// src/lib/firebaseDb.ts
 
-import { initializeApp, getApp, getApps, FirebaseApp } from 'firebase/app';
-import { getFirestore, Firestore } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider, Auth } from 'firebase/auth';
-
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
-};
-
-if (
-  !firebaseConfig.apiKey ||
-  !firebaseConfig.authDomain ||
-  !firebaseConfig.projectId ||
-  !firebaseConfig.appId
-) {
-  // If this ever fires on Vercel, make sure the NEXT_PUBLIC_* vars are set in Project → Settings → Environment Variables
-  throw new Error('Missing required NEXT_PUBLIC_FIREBASE_* environment variables');
-}
-
-const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
-
-// Client SDKs — safe only in the browser
-export const db: Firestore = getFirestore(app);
-export const auth: Auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
-
-// (Optional) default export of the app if you need it elsewhere
-export default app;
+import { initializeApp, getApp, getApps, FirebaseApp } from "firebase/app";
+import { getFirestore, type Firestore } from "firebase/firestore";
+import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth";
 
 /**
- * 🔄 Option B: Legacy shim for older imports
- * Some files may still do `import { getClientFirebase } from "@/lib/firebaseDb"`
- * This keeps them working until you update everything to import { db, auth, googleProvider }
+ * Tiny, shared initializer used by both server and client files.
+ * This file DOES NOT throw if envs are missing or if called during SSR.
+ * Instead, it returns a "bag" with `ready=false` plus typed placeholders
+ * so downstream code can choose how to handle it.
  */
-export function getClientFirebase() {
-  return {
-    app,
-    db,
-    auth,
-    googleProvider,
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "",
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
+};
+
+function hasRequiredEnv() {
+  return (
+    !!firebaseConfig.apiKey &&
+    !!firebaseConfig.authDomain &&
+    !!firebaseConfig.projectId &&
+    !!firebaseConfig.appId
+  );
+}
+
+type NotReadyReason = "missing-env" | "ssr" | "unknown";
+
+export type FirebaseBag = {
+  ready: boolean;
+  reason: NotReadyReason | "ok";
+  app: FirebaseApp | null;
+  db: Firestore; // typed as real Firestore even when not ready (we cast placeholders)
+  auth: Auth; // same idea
+  googleProvider: GoogleAuthProvider; // same idea
+};
+
+let memo: FirebaseBag | null = null;
+
+/**
+ * Returns a bag of Firebase objects.
+ * - In the browser with valid envs => ready=true and real instances.
+ * - On the server or with missing envs => ready=false and typed placeholders.
+ */
+export function getClientFirebase(): FirebaseBag {
+  if (memo) return memo;
+
+  const isBrowser = typeof window !== "undefined";
+  const envOk = hasRequiredEnv();
+
+  if (!isBrowser) {
+    memo = {
+      ready: false,
+      reason: "ssr",
+      app: null,
+      db: null as unknown as Firestore,
+      auth: null as unknown as Auth,
+      googleProvider: null as unknown as GoogleAuthProvider,
+    };
+    return memo;
+  }
+
+  if (!envOk) {
+    memo = {
+      ready: false,
+      reason: "missing-env",
+      app: null,
+      db: null as unknown as Firestore,
+      auth: null as unknown as Auth,
+      googleProvider: null as unknown as GoogleAuthProvider,
+    };
+    return memo;
+  }
+
+  const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+  memo = {
     ready: true,
-    reason: 'ok',
+    reason: "ok",
+    app,
+    db: getFirestore(app),
+    auth: getAuth(app),
+    googleProvider: new GoogleAuthProvider(),
   };
+
+  return memo;
 }

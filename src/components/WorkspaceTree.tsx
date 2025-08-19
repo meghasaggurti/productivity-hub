@@ -11,7 +11,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { db } from '@/lib/firebaseDb';
+import { db, auth } from '@/lib/clientOnlyDb';
 import type { Page } from '@/types/app';
 import { moveOrReorderPage } from '@/lib/ops';
 import { useDragAutoScroll } from '@/hooks/useDragAutoScroll';

@@ -15,7 +15,7 @@ import {
   collection,
   serverTimestamp,
 } from "firebase/firestore";
-import { db } from "@/lib/firebaseDb";
+import { db, auth } from '@/lib/clientOnlyDb';
 
 /**
  * Create a brand new workspace owned by `uid`.

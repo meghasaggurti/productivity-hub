@@ -12,7 +12,7 @@ import {
   getRedirectResult,
   signOut,
 } from 'firebase/auth';
-import { auth } from '@/lib/firebaseDb';
+import { db, auth } from '@/lib/clientOnlyDb';
 import { ensureMembershipForUser } from '@/lib/ensureMembership';
 import { upsertOwnProfile } from '@/lib/upsertOwnProfile';
 

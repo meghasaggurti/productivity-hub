@@ -1,3 +1,5 @@
+'use client';
+
 // src/lib/ops.ts
 import {
   addDoc,
@@ -14,7 +16,7 @@ import {
   writeBatch,
   deleteField, // needed for removing roles.{uid}
 } from 'firebase/firestore';
-import { db, auth } from '@/lib/firebaseDb';
+import { db, auth } from '@/lib/clientOnlyDb';
 
 /** ---------- Helpers ---------- */
 

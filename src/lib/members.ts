@@ -3,7 +3,7 @@
 import {
   addDoc, arrayUnion, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where,
 } from "firebase/firestore";
-import { db } from "@/lib/firebaseDb";
+import { db, auth } from '@/lib/clientOnlyDb';
 import { useEffect, useState } from "react";
 
 /** Types */

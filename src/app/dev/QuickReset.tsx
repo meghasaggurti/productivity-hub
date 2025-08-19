@@ -11,7 +11,7 @@ import {
   writeBatch,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, auth } from '@/lib/firebaseDb';
+import { db, auth } from '@/lib/clientOnlyDb';
 import { useRouter } from 'next/navigation';
 
 // OPTIONAL: if you have this and want to keep it

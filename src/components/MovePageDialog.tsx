@@ -4,7 +4,7 @@
 import type React from "react";
 import { useMemo, useState } from "react";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "@/lib/firebaseDb";
+import { db, auth } from '@/lib/clientOnlyDb';
 import { buildPageTree, type PageNode } from "@/utils/pageTree";
 
 type Props = {

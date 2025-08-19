@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { collection, query, where, limit, getDocs, addDoc, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebaseDb";
+import { db, auth } from '@/lib/clientOnlyDb';
 import { useAuth } from "@/components/AuthProvider";
 
 export default function FirestoreDebug() {

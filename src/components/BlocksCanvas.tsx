@@ -16,7 +16,7 @@ import { useEffect, useState } from "react"; // Importing React hooks for side e
 import {
   collection, onSnapshot, query, addDoc, updateDoc, doc, deleteDoc
 } from "firebase/firestore"; // Firebase Firestore methods for reading and modifying data
-import { db } from "@/lib/firebaseDb"; // Firebase Firestore database instance
+import { db, auth } from '@/lib/clientOnlyDb';// Firebase Firestore database instance
 import type { Block, TextData } from "@/types/db"; // Types for Block and TextData
 
 export default function BlocksCanvas({

@@ -13,7 +13,7 @@ import {
   getDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { db } from "@/lib/firebaseDb";
+import { db, auth } from '@/lib/clientOnlyDb';
 
 type StepResult =
   | { ok: true; label: string; data?: any }

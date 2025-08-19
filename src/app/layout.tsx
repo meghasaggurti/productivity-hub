@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
-import "@/app/globals.css";
+import "./globals.css";
+import { Spectral } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
 import ThemeListener from "@/components/ThemeListener";
+
+//const spectral = Spectral({
+  //subsets: ["latin"],
+  //variable: "--font-spectral",
+  //display: "swap",
+//});
 
 export const metadata: Metadata = {
   title: "Productivity Hub",

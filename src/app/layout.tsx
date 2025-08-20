@@ -1,14 +1,11 @@
-// src/app/layout.tsx
-import type { Metadata } from "next";
-import "./globals.css";
-import { spectral } from "./font"; // <- uses your current file name
-import GraphQLProvider from "@/components/GraphQLProvider";
-import { AuthProvider } from "@/components/AuthProvider";
-import ThemeListener from "@/components/ThemeListener";
+import './globals.css';
+import GraphQLProvider from '@/components/GraphQLProvider';
+import { AuthProvider } from '@/components/AuthProvider';
+import { spectral } from './font';
 
-export const metadata: Metadata = {
-  title: "Productivity Hub",
-  description: "Your customizable hub for work, school, and life.",
+export const metadata = {
+  title: 'Productivity Hub',
+  description: 'Your customizable hub for work, school, and life.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -16,10 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={spectral.variable}>
       <body>
         <GraphQLProvider>
-          <AuthProvider>
-            {children}
-            <ThemeListener />
-          </AuthProvider>
+          <AuthProvider>{children}</AuthProvider>
         </GraphQLProvider>
       </body>
     </html>
